@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout},
+    layout::{Alignment, Constraint, Corner, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, List, ListItem, Paragraph},
@@ -9,6 +9,7 @@ use ratatui::{
 use crate::app_state::{
     date_selection::{DateField, DateSelection},
     function_selection::FunctionSelection,
+    log_viewer::LogViewer,
     profile_selection::ProfileSelection,
 };
 
@@ -252,4 +253,108 @@ fn format_date_with_highlight(
             Span::raw(minute)
         },
     ])])
+}
+
+pub fn draw_log_viewer(f: &mut Frame, state: &LogViewer) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // Title
+            Constraint::Length(3), // Filter
+            Constraint::Min(0),    // Logs
+            Constraint::Length(3), // Controls
+        ])
+        .margin(1)
+        .split(f.size());
+
+    // Title
+    let title = format!(
+        "Logs for {} ({} to {})",
+        state.function_name,
+        state.from_date.format("%Y-%m-%d %H:%M"),
+        state.to_date.format("%Y-%m-%d %H:%M")
+    );
+    let title_widget = Paragraph::new(title)
+        .style(Style::default().fg(Color::Cyan))
+        .block(Block::default().borders(Borders::ALL));
+    f.render_widget(title_widget, chunks[0]);
+
+    // Filter input
+    let filter_input = Paragraph::new(state.filter_input.as_str())
+        .block(Block::default().title("Filter").borders(Borders::ALL));
+    f.render_widget(filter_input, chunks[1]);
+
+    // Logs
+    let logs: Vec<ListItem> = state
+        .filtered_logs
+        .iter()
+        .map(|log| {
+            let message = log.message.as_deref().unwrap_or("");
+            let timestamp = DateTime::<Local>::from(
+                std::time::UNIX_EPOCH
+                    + std::time::Duration::from_millis(log.timestamp.unwrap_or(0) as u64),
+            );
+
+            let mut spans = vec![Span::styled(
+                format!("{} ", timestamp.format("%Y-%m-%d %H:%M:%S")),
+                Style::default().fg(Color::Gray),
+            )];
+
+            if state.filter_input.is_empty() {
+                spans.push(Span::raw(message));
+            } else {
+                // Highlight keywords in the message
+                let keywords: Vec<&str> = state.filter_input.split_whitespace().collect();
+                let mut last_pos = 0;
+                let mut positions: Vec<(usize, usize)> = Vec::new();
+
+                for keyword in keywords {
+                    let message_lower = message.to_lowercase();
+                    let keyword_lower = keyword.to_lowercase();
+
+                    let mut start = 0;
+                    while let Some(pos) = message_lower[start..].find(&keyword_lower) {
+                        let abs_pos = start + pos;
+                        positions.push((abs_pos, abs_pos + keyword.len()));
+                        start = abs_pos + 1;
+                    }
+                }
+
+                positions.sort_by_key(|k| k.0);
+                positions.dedup();
+
+                for (start, end) in positions {
+                    if start > last_pos {
+                        spans.push(Span::raw(&message[last_pos..start]));
+                    }
+                    spans.push(Span::styled(
+                        &message[start..end],
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    ));
+                    last_pos = end;
+                }
+
+                if last_pos < message.len() {
+                    spans.push(Span::raw(&message[last_pos..]));
+                }
+            }
+
+            ListItem::new(Line::from(spans))
+        })
+        .collect();
+
+    let logs_list = List::new(logs)
+        .block(Block::default().title("Logs").borders(Borders::ALL))
+        .start_corner(Corner::TopLeft);
+    f.render_widget(logs_list, chunks[2]);
+
+    // Controls
+    let controls =
+        "↑↓: Scroll | PgUp/PgDn: Page scroll | Filter: Type to filter logs | Esc: Back | q: Quit";
+    let controls_widget = Paragraph::new(controls)
+        .style(Style::default().fg(Color::Green))
+        .block(Block::default().borders(Borders::ALL));
+    f.render_widget(controls_widget, chunks[3]);
 }

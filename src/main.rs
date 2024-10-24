@@ -5,7 +5,7 @@ mod ui;
 
 use anyhow::Result;
 use app_state::{
-    date_selection::DateSelection, function_selection::FunctionSelection,
+    date_selection::DateSelection, function_selection::FunctionSelection, log_viewer::LogViewer,
     profile_selection::ProfileSelection, AppState,
 };
 use chrono::Local;
@@ -23,6 +23,7 @@ struct App {
     profile_selection: ProfileSelection,
     function_selection: Option<FunctionSelection>,
     date_selection: Option<DateSelection>,
+    log_viewer: Option<LogViewer>,
 }
 
 impl App {
@@ -33,6 +34,7 @@ impl App {
             profile_selection: ProfileSelection::new(profiles),
             function_selection: None,
             date_selection: None,
+            log_viewer: None,
         })
     }
 
@@ -49,6 +51,31 @@ impl App {
     fn enter_date_selection(&mut self) {
         self.date_selection = Some(DateSelection::new());
         self.state = AppState::DateSelection;
+    }
+
+    async fn enter_log_viewer(&mut self) -> Result<()> {
+        if let (Some(function_selection), Some(date_selection)) =
+            (&self.function_selection, &self.date_selection)
+        {
+            let function_name =
+                function_selection.filtered_functions[function_selection.selected_index].clone();
+            let mut log_viewer = LogViewer::new(
+                function_name,
+                date_selection.from_date,
+                date_selection.to_date,
+            );
+
+            log_viewer
+                .initialize(
+                    function_selection.profile.name.clone(),
+                    function_selection.profile.region.clone(),
+                )
+                .await?;
+
+            self.log_viewer = Some(log_viewer);
+            self.state = AppState::LogViewer;
+        }
+        Ok(())
     }
 }
 
@@ -76,6 +103,11 @@ async fn main() -> Result<()> {
             AppState::DateSelection => {
                 if let Some(ref mut date_selection) = app.date_selection {
                     ui::draw_date_selection(f, date_selection)
+                }
+            }
+            AppState::LogViewer => {
+                if let Some(ref mut log_viewer) = app.log_viewer {
+                    ui::draw_log_viewer(f, log_viewer)
                 }
             }
         })?;
@@ -151,6 +183,31 @@ async fn main() -> Result<()> {
                                 }
                                 KeyCode::Enter => {
                                     // Handle final selection
+                                    app.enter_log_viewer().await?;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    AppState::LogViewer => {
+                        if let Some(ref mut log_viewer) = app.log_viewer {
+                            match key.code {
+                                KeyCode::Char('q') => break,
+                                KeyCode::Esc => {
+                                    app.state = AppState::DateSelection;
+                                    app.log_viewer = None;
+                                }
+                                KeyCode::Up => log_viewer.scroll_up(),
+                                KeyCode::Down => log_viewer.scroll_down(),
+                                KeyCode::PageUp => log_viewer.page_up(10),
+                                KeyCode::PageDown => log_viewer.page_down(10),
+                                KeyCode::Char(c) => {
+                                    log_viewer.filter_input.push(c);
+                                    log_viewer.update_filter();
+                                }
+                                KeyCode::Backspace => {
+                                    log_viewer.filter_input.pop();
+                                    log_viewer.update_filter();
                                 }
                                 _ => {}
                             }
