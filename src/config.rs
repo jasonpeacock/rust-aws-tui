@@ -18,9 +18,9 @@ impl Default for Config {
 
 impl Config {
     pub fn new() -> Result<Self> {
-        let aws_profile_name = env::var("AWS_PROFILE")
-            .unwrap_or_else(|_| String::from("resola-staging"));
-        
+        let aws_profile_name =
+            env::var("AWS_PROFILE").unwrap_or_else(|_| String::from("resola-staging"));
+
         let aws_region = env::var("AWS_REGION")
             .or_else(|_| env::var("AWS_DEFAULT_REGION"))
             .unwrap_or_else(|_| String::from("ap-northeast-1"));
@@ -29,13 +29,5 @@ impl Config {
             aws_profile_name,
             aws_region,
         })
-    }
-
-    pub fn set_profile(&mut self, profile: String) {
-        self.aws_profile_name = profile;
-    }
-
-    pub fn set_region(&mut self, region: String) {
-        self.aws_region = region;
     }
 }

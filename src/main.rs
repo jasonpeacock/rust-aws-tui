@@ -3,11 +3,13 @@ mod config;
 use anyhow::Result;
 use aws_config::{BehaviorVersion, Region};
 use aws_sdk_lambda::Client as LambdaClient;
+use config::Config;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use ratatui::widgets::ListState;
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
@@ -16,8 +18,6 @@ use ratatui::{
     Terminal,
 };
 use std::io;
-use config::Config;
-use ratatui::widgets::ListState;
 
 struct App {
     config: Config,
@@ -31,8 +31,12 @@ struct App {
 impl App {
     async fn new() -> Result<Self> {
         let config = Config::new()?;
-        let lambda_functions = Self::fetch_lambda_functions(config.aws_profile_name.clone(), config.aws_region.clone()).await?;
-        
+        let lambda_functions = Self::fetch_lambda_functions(
+            config.aws_profile_name.clone(),
+            config.aws_region.clone(),
+        )
+        .await?;
+
         Ok(App {
             config,
             lambda_functions: lambda_functions.clone(),
@@ -61,9 +65,13 @@ impl App {
             }
 
             let resp = request.send().await?;
-            
+
             if let Some(func_list) = resp.functions.as_ref() {
-                functions.extend(func_list.iter().filter_map(|f| f.function_name().map(String::from)));
+                functions.extend(
+                    func_list
+                        .iter()
+                        .filter_map(|f| f.function_name().map(String::from)),
+                );
             }
 
             next_marker = resp.next_marker().map(ToString::to_string);
@@ -76,26 +84,21 @@ impl App {
         Ok(functions)
     }
 
-    fn next_function(&mut self) {
-        if !self.filtered_functions.is_empty() {
-            self.selected_index = (self.selected_index + 1) % self.filtered_functions.len();
-        }
-    }
-
-    fn previous_function(&mut self) {
-        if !self.filtered_functions.is_empty() {
-            self.selected_index = self.selected_index.checked_sub(1)
-                .unwrap_or(self.filtered_functions.len() - 1);
-        }
-    }
-
     fn update_filter(&mut self) {
-        let keywords: Vec<String> = self.filter_input.to_lowercase().split_whitespace().map(String::from).collect();
-        self.filtered_functions = self.lambda_functions
+        let keywords: Vec<String> = self
+            .filter_input
+            .to_lowercase()
+            .split_whitespace()
+            .map(String::from)
+            .collect();
+        self.filtered_functions = self
+            .lambda_functions
             .iter()
             .filter(|&f| {
                 let function_name = f.to_lowercase();
-                keywords.iter().all(|keyword| function_name.contains(keyword))
+                keywords
+                    .iter()
+                    .all(|keyword| function_name.contains(keyword))
             })
             .cloned()
             .collect();
@@ -123,17 +126,16 @@ async fn main() -> Result<()> {
                 .direction(Direction::Vertical)
                 .margin(1)
                 .constraints([
-                    Constraint::Length(3),  // Title & config
-                    Constraint::Min(0),     // Main content
-                    Constraint::Length(3),  // Controls
+                    Constraint::Length(3), // Title & config
+                    Constraint::Min(0),    // Main content
+                    Constraint::Length(3), // Controls
                 ])
                 .split(f.size());
 
             // Title with AWS Configuration
             let title_text = format!(
-                "AWS TUI App (q: quit) | Profile: {} | Region: {}", 
-                app.config.aws_profile_name, 
-                app.config.aws_region
+                "AWS TUI App (q: quit) | Profile: {} | Region: {}",
+                app.config.aws_profile_name, app.config.aws_region
             );
             let title = Paragraph::new(title_text)
                 .style(Style::default().fg(Color::Cyan))
@@ -153,15 +155,18 @@ async fn main() -> Result<()> {
             f.render_widget(filter_input, inner_chunks[0]);
 
             // Lambda Functions List (Left column)
-            let functions: Vec<ListItem> = app.filtered_functions
+            let functions: Vec<ListItem> = app
+                .filtered_functions
                 .iter()
-                .map(|name| {
-                    ListItem::new(name.as_str())
-                })
+                .map(|name| ListItem::new(name.as_str()))
                 .collect();
 
             let functions_list = List::new(functions)
-                .block(Block::default().title("Lambda Functions").borders(Borders::ALL))
+                .block(
+                    Block::default()
+                        .title("Lambda Functions")
+                        .borders(Borders::ALL),
+                )
                 .highlight_style(Style::default().fg(Color::Yellow).bg(Color::DarkGray));
             f.render_stateful_widget(functions_list, inner_chunks[1], &mut app.list_state);
 
@@ -171,7 +176,7 @@ async fn main() -> Result<()> {
             } else {
                 "No function selected".to_string()
             };
-            
+
             let details_widget = Paragraph::new(details)
                 .style(Style::default().fg(Color::White))
                 .block(Block::default().title("Details").borders(Borders::ALL));
@@ -194,21 +199,22 @@ async fn main() -> Result<()> {
                             app.selected_index = app.selected_index.saturating_sub(1);
                             app.list_state.select(Some(app.selected_index));
                         }
-                    },
+                    }
                     KeyCode::Down => {
                         if !app.filtered_functions.is_empty() {
-                            app.selected_index = (app.selected_index + 1).min(app.filtered_functions.len() - 1);
+                            app.selected_index =
+                                (app.selected_index + 1).min(app.filtered_functions.len() - 1);
                             app.list_state.select(Some(app.selected_index));
                         }
-                    },
+                    }
                     KeyCode::Char(c) => {
                         app.filter_input.push(c);
                         app.update_filter();
-                    },
+                    }
                     KeyCode::Backspace => {
                         app.filter_input.pop();
                         app.update_filter();
-                    },
+                    }
                     _ => {}
                 }
             }
