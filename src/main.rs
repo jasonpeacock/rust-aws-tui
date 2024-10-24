@@ -197,15 +197,14 @@ async fn main() -> Result<()> {
                                     app.state = AppState::DateSelection;
                                     app.log_viewer = None;
                                 }
-                                KeyCode::Up => log_viewer.scroll_up(),
-                                KeyCode::Down => log_viewer.scroll_down(),
-                                KeyCode::PageUp => log_viewer.page_up(10),
-                                KeyCode::PageDown => log_viewer.page_down(10),
-                                KeyCode::Char(c) => {
+                                KeyCode::Up if !log_viewer.expanded => log_viewer.scroll_up(),
+                                KeyCode::Down if !log_viewer.expanded => log_viewer.scroll_down(),
+                                KeyCode::Enter => log_viewer.toggle_expand(),
+                                KeyCode::Char(c) if !log_viewer.expanded => {
                                     log_viewer.filter_input.push(c);
                                     log_viewer.update_filter();
                                 }
-                                KeyCode::Backspace => {
+                                KeyCode::Backspace if !log_viewer.expanded => {
                                     log_viewer.filter_input.pop();
                                     log_viewer.update_filter();
                                 }

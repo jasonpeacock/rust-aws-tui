@@ -15,6 +15,8 @@ pub struct LogViewer {
     pub filtered_logs: Vec<OutputLogEvent>,
     pub filter_input: String,
     pub scroll_position: usize,
+    pub selected_log: Option<usize>,
+    pub expanded: bool,
     cloudwatch_client: Option<CloudWatchLogsClient>,
 }
 
@@ -32,6 +34,8 @@ impl LogViewer {
             filtered_logs: Vec::new(),
             filter_input: String::new(),
             scroll_position: 0,
+            selected_log: None,
+            expanded: false,
             cloudwatch_client: None,
         }
     }
@@ -98,36 +102,67 @@ impl LogViewer {
 
         if self.filter_input.is_empty() {
             self.filtered_logs = logs.clone();
-            return;
+        } else {
+            let filter_lower = self.filter_input.to_lowercase();
+            let keywords: Vec<&str> = filter_lower.split_whitespace().collect();
+
+            self.filtered_logs = logs
+                .iter()
+                .filter(|log| {
+                    if let Some(message) = log.message.as_ref() {
+                        let message_lower = message.to_lowercase();
+                        keywords
+                            .iter()
+                            .all(|&keyword| message_lower.contains(keyword))
+                    } else {
+                        false
+                    }
+                })
+                .cloned()
+                .collect();
         }
 
-        let filter_lower = self.filter_input.to_lowercase(); // Store the lowercase string
-        let keywords: Vec<&str> = filter_lower.split_whitespace().collect();
-
-        self.filtered_logs = logs
-            .iter()
-            .filter(|log| {
-                if let Some(message) = log.message.as_ref() {
-                    let message_lower = message.to_lowercase();
-                    keywords
-                        .iter()
-                        .all(|&keyword| message_lower.contains(keyword))
-                } else {
-                    false
-                }
-            })
-            .cloned()
-            .collect();
+        // Reset selection when filter changes
+        self.selected_log = if self.filtered_logs.is_empty() {
+            None
+        } else {
+            Some(0)
+        };
+        self.expanded = false;
     }
 
     pub fn scroll_up(&mut self) {
-        self.scroll_position = self.scroll_position.saturating_sub(1);
+        if self.expanded {
+            return;
+        }
+
+        if let Some(selected) = self.selected_log.as_mut() {
+            *selected = selected.saturating_sub(1);
+        } else if !self.filtered_logs.is_empty() {
+            self.selected_log = Some(0);
+        }
     }
 
     pub fn scroll_down(&mut self) {
-        if !self.filtered_logs.is_empty() {
-            self.scroll_position = (self.scroll_position + 1).min(self.filtered_logs.len() - 1);
+        if self.expanded {
+            return;
         }
+
+        if let Some(selected) = self.selected_log.as_mut() {
+            *selected = (*selected + 1).min(self.filtered_logs.len().saturating_sub(1));
+        } else if !self.filtered_logs.is_empty() {
+            self.selected_log = Some(0);
+        }
+    }
+
+    pub fn toggle_expand(&mut self) {
+        if self.selected_log.is_some() {
+            self.expanded = !self.expanded;
+        }
+    }
+
+    pub fn get_selected_log(&self) -> Option<&OutputLogEvent> {
+        self.selected_log.and_then(|i| self.filtered_logs.get(i))
     }
 
     pub fn page_up(&mut self, page_size: usize) {

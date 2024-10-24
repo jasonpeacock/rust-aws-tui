@@ -284,75 +284,123 @@ pub fn draw_log_viewer(f: &mut Frame, state: &LogViewer) {
         .block(Block::default().title("Filter").borders(Borders::ALL));
     f.render_widget(filter_input, chunks[1]);
 
-    // Logs
-    let logs: Vec<ListItem> = state
-        .filtered_logs
-        .iter()
-        .map(|log| {
+    // Logs area
+    if state.expanded {
+        if let Some(log) = state.get_selected_log() {
             let message = log.message.as_deref().unwrap_or("");
             let timestamp = DateTime::<Local>::from(
                 std::time::UNIX_EPOCH
                     + std::time::Duration::from_millis(log.timestamp.unwrap_or(0) as u64),
             );
 
-            let mut spans = vec![Span::styled(
-                format!("{} ", timestamp.format("%Y-%m-%d %H:%M:%S")),
-                Style::default().fg(Color::Gray),
-            )];
+            let header = format!("Timestamp: {}", timestamp.format("%Y-%m-%d %H:%M:%S%.3f"));
+            let content = format!("\n{}", message);
 
-            if state.filter_input.is_empty() {
-                spans.push(Span::raw(message));
-            } else {
-                // Highlight keywords in the message
-                let keywords: Vec<&str> = state.filter_input.split_whitespace().collect();
-                let mut last_pos = 0;
-                let mut positions: Vec<(usize, usize)> = Vec::new();
+            let log_detail = Paragraph::new(vec![
+                Line::from(vec![Span::styled(
+                    "Log Details",
+                    Style::default().add_modifier(Modifier::BOLD),
+                )]),
+                Line::from(vec![Span::styled(header, Style::default().fg(Color::Gray))]),
+                Line::from(vec![Span::raw(content)]),
+            ])
+            .block(
+                Block::default()
+                    .title("Expanded View")
+                    .borders(Borders::ALL),
+            )
+            .wrap(ratatui::widgets::Wrap { trim: false });
 
-                for keyword in keywords {
-                    let message_lower = message.to_lowercase();
-                    let keyword_lower = keyword.to_lowercase();
+            f.render_widget(log_detail, chunks[2]);
+        }
+    } else {
+        let logs: Vec<ListItem> = state
+            .filtered_logs
+            .iter()
+            .enumerate()
+            .map(|(i, log)| {
+                let message = log.message.as_deref().unwrap_or("");
+                let timestamp = DateTime::<Local>::from(
+                    std::time::UNIX_EPOCH
+                        + std::time::Duration::from_millis(log.timestamp.unwrap_or(0) as u64),
+                );
 
-                    let mut start = 0;
-                    while let Some(pos) = message_lower[start..].find(&keyword_lower) {
-                        let abs_pos = start + pos;
-                        positions.push((abs_pos, abs_pos + keyword.len()));
-                        start = abs_pos + 1;
+                let mut spans = vec![Span::styled(
+                    format!("{} ", timestamp.format("%Y-%m-%d %H:%M:%S")),
+                    Style::default().fg(Color::Gray),
+                )];
+
+                // Truncate message if it's too long
+                let truncated_message = if message.len() > 100 {
+                    format!("{}...", &message[..100])
+                } else {
+                    message.to_string()
+                };
+
+                if state.filter_input.is_empty() {
+                    spans.push(Span::raw(truncated_message));
+                } else {
+                    // Highlight keywords in the message
+                    let keywords: Vec<&str> = state.filter_input.split_whitespace().collect();
+                    let mut last_pos = 0;
+                    let mut positions: Vec<(usize, usize)> = Vec::new();
+
+                    for keyword in keywords {
+                        let message_lower = message.to_lowercase();
+                        let keyword_lower = keyword.to_lowercase();
+
+                        let mut start = 0;
+                        while let Some(pos) = message_lower[start..].find(&keyword_lower) {
+                            let abs_pos = start + pos;
+                            positions.push((abs_pos, abs_pos + keyword.len()));
+                            start = abs_pos + 1;
+                        }
+                    }
+
+                    positions.sort_by_key(|k| k.0);
+                    positions.dedup();
+
+                    for (start, end) in positions {
+                        if start > last_pos {
+                            spans.push(Span::raw(&message[last_pos..start]));
+                        }
+                        spans.push(Span::styled(
+                            &message[start..end],
+                            Style::default()
+                                .fg(Color::Yellow)
+                                .add_modifier(Modifier::BOLD),
+                        ));
+                        last_pos = end;
+                    }
+
+                    if last_pos < message.len() {
+                        spans.push(Span::raw(&message[last_pos..]));
                     }
                 }
 
-                positions.sort_by_key(|k| k.0);
-                positions.dedup();
+                let style = if Some(i) == state.selected_log {
+                    Style::default().fg(Color::Yellow).bg(Color::DarkGray)
+                } else {
+                    Style::default()
+                };
 
-                for (start, end) in positions {
-                    if start > last_pos {
-                        spans.push(Span::raw(&message[last_pos..start]));
-                    }
-                    spans.push(Span::styled(
-                        &message[start..end],
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD),
-                    ));
-                    last_pos = end;
-                }
+                ListItem::new(Line::from(spans)).style(style)
+            })
+            .collect();
 
-                if last_pos < message.len() {
-                    spans.push(Span::raw(&message[last_pos..]));
-                }
-            }
-
-            ListItem::new(Line::from(spans))
-        })
-        .collect();
-
-    let logs_list = List::new(logs)
-        .block(Block::default().title("Logs").borders(Borders::ALL))
-        .start_corner(Corner::TopLeft);
-    f.render_widget(logs_list, chunks[2]);
+        let logs_list = List::new(logs)
+            .block(Block::default().title("Logs").borders(Borders::ALL))
+            .start_corner(Corner::TopLeft);
+        f.render_widget(logs_list, chunks[2]);
+    }
 
     // Controls
-    let controls =
-        "↑↓: Scroll | PgUp/PgDn: Page scroll | Filter: Type to filter logs | Esc: Back | q: Quit";
+    let controls = if state.expanded {
+        "Enter: Collapse | Esc: Back | q: Quit"
+    } else {
+        "↑↓: Navigate | Enter: Expand | Filter: Type to filter | Esc: Back | q: Quit"
+    };
+
     let controls_widget = Paragraph::new(controls)
         .style(Style::default().fg(Color::Green))
         .block(Block::default().borders(Borders::ALL));
