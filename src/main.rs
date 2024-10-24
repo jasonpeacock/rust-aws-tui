@@ -90,11 +90,11 @@ async fn main() -> Result<()> {
                                 KeyCode::Down => function_selection.next(),
                                 KeyCode::Char(c) => {
                                     function_selection.filter_input.push(c);
-                                    function_selection.update_filter();
+                                    function_selection.update_filter().await?;
                                 }
                                 KeyCode::Backspace => {
                                     function_selection.filter_input.pop();
-                                    function_selection.update_filter();
+                                    function_selection.update_filter().await?;
                                 }
                                 _ => {}
                             }
