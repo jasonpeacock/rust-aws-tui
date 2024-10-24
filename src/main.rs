@@ -17,11 +17,15 @@ use ratatui::{
 };
 use std::io;
 use config::Config;
+use ratatui::widgets::ListState;
 
 struct App {
     config: Config,
     lambda_functions: Vec<String>,
+    filtered_functions: Vec<String>,
     selected_index: usize,
+    filter_input: String,
+    list_state: ListState,
 }
 
 impl App {
@@ -31,8 +35,11 @@ impl App {
         
         Ok(App {
             config,
-            lambda_functions,
+            lambda_functions: lambda_functions.clone(),
+            filtered_functions: lambda_functions,
             selected_index: 0,
+            filter_input: String::new(),
+            list_state: ListState::default(),
         })
     }
 
@@ -52,16 +59,30 @@ impl App {
     }
 
     fn next_function(&mut self) {
-        if !self.lambda_functions.is_empty() {
-            self.selected_index = (self.selected_index + 1) % self.lambda_functions.len();
+        if !self.filtered_functions.is_empty() {
+            self.selected_index = (self.selected_index + 1) % self.filtered_functions.len();
         }
     }
 
     fn previous_function(&mut self) {
-        if !self.lambda_functions.is_empty() {
+        if !self.filtered_functions.is_empty() {
             self.selected_index = self.selected_index.checked_sub(1)
-                .unwrap_or(self.lambda_functions.len() - 1);
+                .unwrap_or(self.filtered_functions.len() - 1);
         }
+    }
+
+    fn update_filter(&mut self) {
+        let keywords: Vec<String> = self.filter_input.to_lowercase().split_whitespace().map(String::from).collect();
+        self.filtered_functions = self.lambda_functions
+            .iter()
+            .filter(|&f| {
+                let function_name = f.to_lowercase();
+                keywords.iter().all(|keyword| function_name.contains(keyword))
+            })
+            .cloned()
+            .collect();
+        self.selected_index = 0;
+        self.list_state.select(Some(0));
     }
 }
 
@@ -103,30 +124,31 @@ async fn main() -> Result<()> {
 
             // Two-column layout for Lambda Functions and Details
             let inner_chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(3), Constraint::Min(0)])
                 .split(chunks[1]);
 
+            // Filter input
+            let filter_input = Paragraph::new(app.filter_input.as_str())
+                .style(Style::default())
+                .block(Block::default().title("Filter").borders(Borders::ALL));
+            f.render_widget(filter_input, inner_chunks[0]);
+
             // Lambda Functions List (Left column)
-            let functions: Vec<ListItem> = app.lambda_functions
+            let functions: Vec<ListItem> = app.filtered_functions
                 .iter()
-                .enumerate()
-                .map(|(i, name)| {
-                    let style = if i == app.selected_index {
-                        Style::default().fg(Color::Yellow)
-                    } else {
-                        Style::default()
-                    };
-                    ListItem::new(name.as_str()).style(style)
+                .map(|name| {
+                    ListItem::new(name.as_str())
                 })
                 .collect();
 
             let functions_list = List::new(functions)
-                .block(Block::default().title("Lambda Functions").borders(Borders::ALL));
-            f.render_widget(functions_list, inner_chunks[0]);
+                .block(Block::default().title("Lambda Functions").borders(Borders::ALL))
+                .highlight_style(Style::default().fg(Color::Yellow).bg(Color::DarkGray));
+            f.render_stateful_widget(functions_list, inner_chunks[1], &mut app.list_state);
 
             // Function Details (Right column)
-            let details = if let Some(selected) = app.lambda_functions.get(app.selected_index) {
+            let details = if let Some(selected) = app.filtered_functions.get(app.selected_index) {
                 format!("Selected function: {}", selected)
             } else {
                 "No function selected".to_string()
@@ -149,8 +171,26 @@ async fn main() -> Result<()> {
             if let Event::Key(key) = event::read()? {
                 match key.code {
                     KeyCode::Char('q') => break,
-                    KeyCode::Up => app.previous_function(),
-                    KeyCode::Down => app.next_function(),
+                    KeyCode::Up => {
+                        if !app.filtered_functions.is_empty() {
+                            app.selected_index = app.selected_index.saturating_sub(1);
+                            app.list_state.select(Some(app.selected_index));
+                        }
+                    },
+                    KeyCode::Down => {
+                        if !app.filtered_functions.is_empty() {
+                            app.selected_index = (app.selected_index + 1).min(app.filtered_functions.len() - 1);
+                            app.list_state.select(Some(app.selected_index));
+                        }
+                    },
+                    KeyCode::Char(c) => {
+                        app.filter_input.push(c);
+                        app.update_filter();
+                    },
+                    KeyCode::Backspace => {
+                        app.filter_input.pop();
+                        app.update_filter();
+                    },
                     _ => {}
                 }
             }
