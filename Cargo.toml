@@ -1,0 +1,12 @@
+[package]
+name = "rust_tui_app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ratatui = "0.24.0"
+crossterm = "0.27.0"
+anyhow = "1.0.75"
+
+[dev-dependencies]
+cargo-watch = "8.4.0"
