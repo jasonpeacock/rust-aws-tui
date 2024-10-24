@@ -51,11 +51,29 @@ impl App {
             .await;
 
         let client = LambdaClient::new(&aws_config);
-        let resp = client.list_functions().send().await?;
-        Ok(resp.functions()
-            .iter()
-            .filter_map(|f| f.function_name().map(|name| name.to_string()))
-            .collect())
+        let mut functions = Vec::new();
+        let mut next_marker = None;
+
+        loop {
+            let mut request = client.list_functions();
+            if let Some(marker) = next_marker {
+                request = request.marker(marker);
+            }
+
+            let resp = request.send().await?;
+            
+            if let Some(func_list) = resp.functions.as_ref() {
+                functions.extend(func_list.iter().filter_map(|f| f.function_name().map(String::from)));
+            }
+
+            next_marker = resp.next_marker().map(ToString::to_string);
+
+            if next_marker.is_none() {
+                break;
+            }
+        }
+
+        Ok(functions)
     }
 
     fn next_function(&mut self) {
