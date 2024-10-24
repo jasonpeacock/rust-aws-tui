@@ -125,14 +125,32 @@ async fn main() -> Result<()> {
                                     app.state = AppState::FunctionList;
                                     app.date_selection = None;
                                 }
-                                KeyCode::Tab => date_selection.toggle_selection(),
-                                KeyCode::Left => date_selection.previous_field(),
-                                KeyCode::Right => date_selection.next_field(),
-                                KeyCode::Up => date_selection.adjust_current_field(true),
-                                KeyCode::Down => date_selection.adjust_current_field(false),
+                                KeyCode::Char('c') => date_selection.toggle_custom(),
+                                KeyCode::Tab if date_selection.custom_selection => {
+                                    date_selection.toggle_selection()
+                                }
+                                KeyCode::Left => {
+                                    if date_selection.custom_selection {
+                                        date_selection.previous_field()
+                                    } else {
+                                        date_selection.previous_quick_range()
+                                    }
+                                }
+                                KeyCode::Right => {
+                                    if date_selection.custom_selection {
+                                        date_selection.next_field()
+                                    } else {
+                                        date_selection.next_quick_range()
+                                    }
+                                }
+                                KeyCode::Up if date_selection.custom_selection => {
+                                    date_selection.adjust_current_field(true)
+                                }
+                                KeyCode::Down if date_selection.custom_selection => {
+                                    date_selection.adjust_current_field(false)
+                                }
                                 KeyCode::Enter => {
-                                    // Here you would handle the final selection
-                                    // and proceed to fetch logs
+                                    // Handle final selection
                                 }
                                 _ => {}
                             }

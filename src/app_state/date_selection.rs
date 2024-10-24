@@ -9,12 +9,68 @@ pub enum DateField {
     Minute,
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum QuickRange {
+    LastHour,
+    Last2Hours,
+    Last3Hours,
+    Last6Hours,
+    Last12Hours,
+    Last24Hours,
+    Last3Days,
+    LastWeek,
+}
+
+impl QuickRange {
+    pub fn all() -> Vec<QuickRange> {
+        vec![
+            QuickRange::LastHour,
+            QuickRange::Last2Hours,
+            QuickRange::Last3Hours,
+            QuickRange::Last6Hours,
+            QuickRange::Last12Hours,
+            QuickRange::Last24Hours,
+            QuickRange::Last3Days,
+            QuickRange::LastWeek,
+        ]
+    }
+
+    pub fn to_duration(&self) -> Duration {
+        match self {
+            QuickRange::LastHour => Duration::hours(1),
+            QuickRange::Last2Hours => Duration::hours(2),
+            QuickRange::Last3Hours => Duration::hours(3),
+            QuickRange::Last6Hours => Duration::hours(6),
+            QuickRange::Last12Hours => Duration::hours(12),
+            QuickRange::Last24Hours => Duration::hours(24),
+            QuickRange::Last3Days => Duration::days(3),
+            QuickRange::LastWeek => Duration::days(7),
+        }
+    }
+
+    pub fn display_name(&self) -> &str {
+        match self {
+            QuickRange::LastHour => "Last Hour",
+            QuickRange::Last2Hours => "Last 2 Hours",
+            QuickRange::Last3Hours => "Last 3 Hours",
+            QuickRange::Last6Hours => "Last 6 Hours",
+            QuickRange::Last12Hours => "Last 12 Hours",
+            QuickRange::Last24Hours => "Last 24 Hours",
+            QuickRange::Last3Days => "Last 3 Days",
+            QuickRange::LastWeek => "Last Week",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct DateSelection {
     pub from_date: DateTime<Local>,
     pub to_date: DateTime<Local>,
     pub is_selecting_from: bool,
     pub current_field: DateField,
+    pub quick_ranges: Vec<QuickRange>,
+    pub selected_quick_range: Option<usize>,
+    pub custom_selection: bool,
 }
 
 impl DateSelection {
@@ -25,11 +81,51 @@ impl DateSelection {
             to_date: now,
             is_selecting_from: true,
             current_field: DateField::Day,
+            quick_ranges: QuickRange::all(),
+            selected_quick_range: Some(0), // Default to first quick range
+            custom_selection: false,
         }
     }
 
     pub fn toggle_selection(&mut self) {
-        self.is_selecting_from = !self.is_selecting_from;
+        if self.custom_selection {
+            self.is_selecting_from = !self.is_selecting_from;
+        }
+    }
+
+    pub fn toggle_custom(&mut self) {
+        self.custom_selection = !self.custom_selection;
+        if !self.custom_selection {
+            self.selected_quick_range = Some(0);
+            self.apply_quick_range(0);
+        }
+    }
+
+    pub fn next_quick_range(&mut self) {
+        if let Some(current) = self.selected_quick_range {
+            let next = (current + 1) % self.quick_ranges.len();
+            self.selected_quick_range = Some(next);
+            self.apply_quick_range(next);
+        }
+    }
+
+    pub fn previous_quick_range(&mut self) {
+        if let Some(current) = self.selected_quick_range {
+            let prev = if current == 0 {
+                self.quick_ranges.len() - 1
+            } else {
+                current - 1
+            };
+            self.selected_quick_range = Some(prev);
+            self.apply_quick_range(prev);
+        }
+    }
+
+    fn apply_quick_range(&mut self, index: usize) {
+        if let Some(range) = self.quick_ranges.get(index) {
+            self.to_date = Local::now();
+            self.from_date = self.to_date - range.to_duration();
+        }
     }
 
     pub fn next_field(&mut self) {

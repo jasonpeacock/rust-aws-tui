@@ -110,6 +110,7 @@ pub fn draw_date_selection(f: &mut Frame, date_selection: &DateSelection) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3), // Title
+            Constraint::Length(3), // Quick ranges
             Constraint::Length(5), // From date
             Constraint::Length(5), // To date
             Constraint::Length(3), // Controls
@@ -123,49 +124,84 @@ pub fn draw_date_selection(f: &mut Frame, date_selection: &DateSelection) {
         .alignment(Alignment::Center);
     f.render_widget(title, chunks[0]);
 
+    // Quick ranges
+    let quick_ranges: Vec<Span> = date_selection
+        .quick_ranges
+        .iter()
+        .enumerate()
+        .map(|(i, range)| {
+            let style = if Some(i) == date_selection.selected_quick_range
+                && !date_selection.custom_selection
+            {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default()
+            };
+            Span::styled(range.display_name(), style)
+        })
+        .collect();
+
+    let quick_ranges_text = Text::from(Line::from(quick_ranges));
+    let quick_ranges_widget = Paragraph::new(quick_ranges_text)
+        .alignment(Alignment::Center)
+        .block(Block::default().borders(Borders::ALL));
+    f.render_widget(quick_ranges_widget, chunks[1]);
+
     // From date
     let from_block = Block::default()
         .title("From")
         .borders(Borders::ALL)
-        .border_style(if date_selection.is_selecting_from {
-            Style::default().fg(Color::Yellow)
-        } else {
-            Style::default()
-        });
+        .border_style(
+            if date_selection.is_selecting_from && date_selection.custom_selection {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default()
+            },
+        );
 
     let from_text = format_date_with_highlight(
         date_selection.from_date,
-        date_selection.is_selecting_from,
+        date_selection.is_selecting_from && date_selection.custom_selection,
         &date_selection.current_field,
     );
-    let from = Paragraph::new(from_text).block(from_block);
-    f.render_widget(from, chunks[1]);
+    let from = Paragraph::new(from_text)
+        .block(from_block)
+        .alignment(Alignment::Center);
+    f.render_widget(from, chunks[2]);
 
     // To date
     let to_block = Block::default()
         .title("To")
         .borders(Borders::ALL)
-        .border_style(if !date_selection.is_selecting_from {
-            Style::default().fg(Color::Yellow)
-        } else {
-            Style::default()
-        });
+        .border_style(
+            if !date_selection.is_selecting_from && date_selection.custom_selection {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default()
+            },
+        );
 
     let to_text = format_date_with_highlight(
         date_selection.to_date,
-        !date_selection.is_selecting_from,
+        !date_selection.is_selecting_from && date_selection.custom_selection,
         &date_selection.current_field,
     );
-    let to = Paragraph::new(to_text).block(to_block);
-    f.render_widget(to, chunks[2]);
+    let to = Paragraph::new(to_text)
+        .block(to_block)
+        .alignment(Alignment::Center);
+    f.render_widget(to, chunks[3]);
 
     // Controls
-    let controls = Paragraph::new(
-        "Tab: Switch Date | ←→: Select Field | ↑↓: Adjust Value | Enter: Confirm | Esc: Back",
-    )
-    .style(Style::default().fg(Color::Green))
-    .block(Block::default().borders(Borders::ALL));
-    f.render_widget(controls, chunks[3]);
+    let controls = if date_selection.custom_selection {
+        "Tab: Switch Date | ←→: Select Field | ↑↓: Adjust Value | C: Quick Ranges | Enter: Confirm | Esc: Back"
+    } else {
+        "←→: Select Range | C: Custom | Enter: Confirm | Esc: Back"
+    };
+
+    let controls_widget = Paragraph::new(controls)
+        .style(Style::default().fg(Color::Green))
+        .block(Block::default().borders(Borders::ALL));
+    f.render_widget(controls_widget, chunks[4]);
 }
 
 fn format_date_with_highlight(
