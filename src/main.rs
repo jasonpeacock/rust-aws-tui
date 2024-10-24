@@ -1,4 +1,5 @@
 mod config;
+mod toml_parser;
 
 use anyhow::Result;
 use aws_config::{BehaviorVersion, Region};
@@ -18,8 +19,17 @@ use ratatui::{
     Terminal,
 };
 use std::io;
+use toml_parser::{read_aws_profiles, Profile};
+
+enum AppState {
+    ProfileSelection,
+    FunctionList,
+}
 
 struct App {
+    state: AppState,
+    profile_list_state: ListState,
+    selected_profile: Option<Profile>,
     config: Config,
     lambda_functions: Vec<String>,
     filtered_functions: Vec<String>,
@@ -31,20 +41,32 @@ struct App {
 impl App {
     async fn new() -> Result<Self> {
         let config = Config::new()?;
-        let lambda_functions = Self::fetch_lambda_functions(
-            config.aws_profile_name.clone(),
-            config.aws_region.clone(),
-        )
-        .await?;
+        let mut profile_list_state = ListState::default();
+        if !config.aws_profiles.is_empty() {
+            profile_list_state.select(Some(0));
+        }
 
         Ok(App {
+            state: AppState::ProfileSelection,
+            profile_list_state,
+            selected_profile: None,
             config,
-            lambda_functions: lambda_functions.clone(),
-            filtered_functions: lambda_functions,
+            lambda_functions: Vec::new(),
+            filtered_functions: Vec::new(),
             selected_index: 0,
             filter_input: String::new(),
             list_state: ListState::default(),
         })
+    }
+
+    async fn select_profile(&mut self, profile: Profile) -> Result<()> {
+        self.selected_profile = Some(profile.clone());
+        self.lambda_functions =
+            Self::fetch_lambda_functions(profile.name.clone(), profile.region.clone()).await?;
+        self.filtered_functions = self.lambda_functions.clone();
+        self.state = AppState::FunctionList;
+        self.list_state.select(Some(0));
+        Ok(())
     }
 
     async fn fetch_lambda_functions(profile_name: String, region: String) -> Result<Vec<String>> {
@@ -126,96 +148,147 @@ async fn main() -> Result<()> {
                 .direction(Direction::Vertical)
                 .margin(1)
                 .constraints([
-                    Constraint::Length(3), // Title & config
+                    Constraint::Length(3), // Title
                     Constraint::Min(0),    // Main content
                     Constraint::Length(3), // Controls
                 ])
                 .split(f.size());
 
-            // Title with AWS Configuration
-            let title_text = format!(
-                "AWS TUI App (q: quit) | Profile: {} | Region: {}",
-                app.config.aws_profile_name, app.config.aws_region
-            );
-            let title = Paragraph::new(title_text)
-                .style(Style::default().fg(Color::Cyan))
-                .block(Block::default().borders(Borders::ALL));
-            f.render_widget(title, chunks[0]);
+            match app.state {
+                AppState::ProfileSelection => {
+                    // Title
+                    let title = Paragraph::new("AWS Profile Selection")
+                        .style(Style::default().fg(Color::Cyan))
+                        .block(Block::default().borders(Borders::ALL));
+                    f.render_widget(title, chunks[0]);
 
-            // Two-column layout for Lambda Functions and Details
-            let inner_chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Length(3), Constraint::Min(0)])
-                .split(chunks[1]);
+                    // Profile List
+                    let profiles: Vec<ListItem> = app
+                        .config
+                        .aws_profiles
+                        .iter()
+                        .map(|profile| {
+                            ListItem::new(format!("{} ({})", profile.name, profile.region))
+                        })
+                        .collect();
 
-            // Filter input
-            let filter_input = Paragraph::new(app.filter_input.as_str())
-                .style(Style::default())
-                .block(Block::default().title("Filter").borders(Borders::ALL));
-            f.render_widget(filter_input, inner_chunks[0]);
+                    let profiles_list = List::new(profiles)
+                        .block(Block::default().title("AWS Profiles").borders(Borders::ALL))
+                        .highlight_style(Style::default().fg(Color::Yellow).bg(Color::DarkGray));
+                    f.render_stateful_widget(profiles_list, chunks[1], &mut app.profile_list_state);
 
-            // Lambda Functions List (Left column)
-            let functions: Vec<ListItem> = app
-                .filtered_functions
-                .iter()
-                .map(|name| ListItem::new(name.as_str()))
-                .collect();
+                    // Controls
+                    let controls =
+                        Paragraph::new("↑↓: Navigate profiles | Enter: Select | q: Quit")
+                            .style(Style::default().fg(Color::Green))
+                            .block(Block::default().borders(Borders::ALL));
+                    f.render_widget(controls, chunks[2]);
+                }
+                AppState::FunctionList => {
+                    // Title with selected profile
+                    let profile = app.selected_profile.as_ref().unwrap();
+                    let title_text = format!(
+                        "AWS Lambda Functions | Profile: {} | Region: {}",
+                        profile.name, profile.region
+                    );
+                    let title = Paragraph::new(title_text)
+                        .style(Style::default().fg(Color::Cyan))
+                        .block(Block::default().borders(Borders::ALL));
+                    f.render_widget(title, chunks[0]);
 
-            let functions_list = List::new(functions)
-                .block(
-                    Block::default()
-                        .title("Lambda Functions")
-                        .borders(Borders::ALL),
-                )
-                .highlight_style(Style::default().fg(Color::Yellow).bg(Color::DarkGray));
-            f.render_stateful_widget(functions_list, inner_chunks[1], &mut app.list_state);
+                    // Function list layout
+                    let inner_chunks = Layout::default()
+                        .direction(Direction::Vertical)
+                        .constraints([Constraint::Length(3), Constraint::Min(0)])
+                        .split(chunks[1]);
 
-            // Function Details (Right column)
-            let details = if let Some(selected) = app.filtered_functions.get(app.selected_index) {
-                format!("Selected function: {}", selected)
-            } else {
-                "No function selected".to_string()
-            };
+                    // Filter input
+                    let filter_input = Paragraph::new(app.filter_input.as_str())
+                        .block(Block::default().title("Filter").borders(Borders::ALL));
+                    f.render_widget(filter_input, inner_chunks[0]);
 
-            let details_widget = Paragraph::new(details)
-                .style(Style::default().fg(Color::White))
-                .block(Block::default().title("Details").borders(Borders::ALL));
-            f.render_widget(details_widget, inner_chunks[1]);
+                    // Functions list
+                    let functions: Vec<ListItem> = app
+                        .filtered_functions
+                        .iter()
+                        .map(|name| ListItem::new(name.as_str()))
+                        .collect();
 
-            // Controls
-            let controls = Paragraph::new("↑↓: Navigate functions | q: Quit")
-                .style(Style::default().fg(Color::Green))
-                .block(Block::default().borders(Borders::ALL));
-            f.render_widget(controls, chunks[2]);
+                    let functions_list = List::new(functions)
+                        .block(
+                            Block::default()
+                                .title("Lambda Functions")
+                                .borders(Borders::ALL),
+                        )
+                        .highlight_style(Style::default().fg(Color::Yellow).bg(Color::DarkGray));
+                    f.render_stateful_widget(functions_list, inner_chunks[1], &mut app.list_state);
+
+                    // Controls
+                    let controls =
+                        Paragraph::new("↑↓: Navigate functions | Esc: Back to profiles | q: Quit")
+                            .style(Style::default().fg(Color::Green))
+                            .block(Block::default().borders(Borders::ALL));
+                    f.render_widget(controls, chunks[2]);
+                }
+            }
         })?;
 
         // Handle input
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Char('q') => break,
-                    KeyCode::Up => {
-                        if !app.filtered_functions.is_empty() {
-                            app.selected_index = app.selected_index.saturating_sub(1);
-                            app.list_state.select(Some(app.selected_index));
+                match app.state {
+                    AppState::ProfileSelection => match key.code {
+                        KeyCode::Char('q') => break,
+                        KeyCode::Up => {
+                            if !app.config.aws_profiles.is_empty() {
+                                let current = app.profile_list_state.selected().unwrap_or(0);
+                                let next = current.saturating_sub(1);
+                                app.profile_list_state.select(Some(next));
+                            }
                         }
-                    }
-                    KeyCode::Down => {
-                        if !app.filtered_functions.is_empty() {
-                            app.selected_index =
-                                (app.selected_index + 1).min(app.filtered_functions.len() - 1);
-                            app.list_state.select(Some(app.selected_index));
+                        KeyCode::Down => {
+                            if !app.config.aws_profiles.is_empty() {
+                                let current = app.profile_list_state.selected().unwrap_or(0);
+                                let next = (current + 1).min(app.config.aws_profiles.len() - 1);
+                                app.profile_list_state.select(Some(next));
+                            }
                         }
-                    }
-                    KeyCode::Char(c) => {
-                        app.filter_input.push(c);
-                        app.update_filter();
-                    }
-                    KeyCode::Backspace => {
-                        app.filter_input.pop();
-                        app.update_filter();
-                    }
-                    _ => {}
+                        KeyCode::Enter => {
+                            if let Some(selected) = app.profile_list_state.selected() {
+                                let profile = app.config.aws_profiles[selected].clone();
+                                app.select_profile(profile).await?;
+                            }
+                        }
+                        _ => {}
+                    },
+                    AppState::FunctionList => match key.code {
+                        KeyCode::Char('q') => break,
+                        KeyCode::Esc => {
+                            app.state = AppState::ProfileSelection;
+                        }
+                        KeyCode::Up => {
+                            if !app.filtered_functions.is_empty() {
+                                app.selected_index = app.selected_index.saturating_sub(1);
+                                app.list_state.select(Some(app.selected_index));
+                            }
+                        }
+                        KeyCode::Down => {
+                            if !app.filtered_functions.is_empty() {
+                                app.selected_index =
+                                    (app.selected_index + 1).min(app.filtered_functions.len() - 1);
+                                app.list_state.select(Some(app.selected_index));
+                            }
+                        }
+                        KeyCode::Char(c) => {
+                            app.filter_input.push(c);
+                            app.update_filter();
+                        }
+                        KeyCode::Backspace => {
+                            app.filter_input.pop();
+                            app.update_filter();
+                        }
+                        _ => {}
+                    },
                 }
             }
         }

@@ -1,0 +1,4 @@
+profiles = [
+    { name = "resola-staging", region = "ap-northeast-1" },
+    { name = "resola-prod", region = "ap-northeast-1" }
+]
