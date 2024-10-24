@@ -5,8 +5,10 @@ mod ui;
 
 use anyhow::Result;
 use app_state::{
-    function_selection::FunctionSelection, profile_selection::ProfileSelection, AppState,
+    date_selection::DateSelection, function_selection::FunctionSelection,
+    profile_selection::ProfileSelection, AppState,
 };
+use chrono::Local;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -20,6 +22,7 @@ struct App {
     state: AppState,
     profile_selection: ProfileSelection,
     function_selection: Option<FunctionSelection>,
+    date_selection: Option<DateSelection>,
 }
 
 impl App {
@@ -29,6 +32,7 @@ impl App {
             state: AppState::ProfileSelection,
             profile_selection: ProfileSelection::new(profiles),
             function_selection: None,
+            date_selection: None,
         })
     }
 
@@ -40,6 +44,11 @@ impl App {
             self.state = AppState::FunctionList;
         }
         Ok(())
+    }
+
+    fn enter_date_selection(&mut self) {
+        self.date_selection = Some(DateSelection::new());
+        self.state = AppState::DateSelection;
     }
 }
 
@@ -64,6 +73,11 @@ async fn main() -> Result<()> {
                     ui::draw_function_selection(f, function_selection)
                 }
             }
+            AppState::DateSelection => {
+                if let Some(ref mut date_selection) = app.date_selection {
+                    ui::draw_date_selection(f, date_selection)
+                }
+            }
         })?;
 
         if event::poll(std::time::Duration::from_millis(100))? {
@@ -86,6 +100,9 @@ async fn main() -> Result<()> {
                                     app.state = AppState::ProfileSelection;
                                     app.function_selection = None;
                                 }
+                                KeyCode::Enter => {
+                                    app.enter_date_selection();
+                                }
                                 KeyCode::Up => function_selection.previous(),
                                 KeyCode::Down => function_selection.next(),
                                 KeyCode::Char(c) => {
@@ -95,6 +112,27 @@ async fn main() -> Result<()> {
                                 KeyCode::Backspace => {
                                     function_selection.filter_input.pop();
                                     function_selection.update_filter().await?;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    AppState::DateSelection => {
+                        if let Some(ref mut date_selection) = app.date_selection {
+                            match key.code {
+                                KeyCode::Char('q') => break,
+                                KeyCode::Esc => {
+                                    app.state = AppState::FunctionList;
+                                    app.date_selection = None;
+                                }
+                                KeyCode::Tab => date_selection.toggle_selection(),
+                                KeyCode::Left => date_selection.previous_field(),
+                                KeyCode::Right => date_selection.next_field(),
+                                KeyCode::Up => date_selection.adjust_current_field(true),
+                                KeyCode::Down => date_selection.adjust_current_field(false),
+                                KeyCode::Enter => {
+                                    // Here you would handle the final selection
+                                    // and proceed to fetch logs
                                 }
                                 _ => {}
                             }

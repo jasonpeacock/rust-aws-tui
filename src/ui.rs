@@ -1,13 +1,15 @@
 use ratatui::{
-    backend::Backend,
-    layout::{Constraint, Direction, Layout},
-    style::{Color, Style},
+    layout::{Alignment, Constraint, Direction, Layout},
+    style::{Color, Modifier, Style},
+    text::{Line, Span, Text},
     widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame,
 };
 
 use crate::app_state::{
-    function_selection::FunctionSelection, profile_selection::ProfileSelection,
+    date_selection::{DateField, DateSelection},
+    function_selection::FunctionSelection,
+    profile_selection::ProfileSelection,
 };
 
 pub fn draw_profile_selection(f: &mut Frame, state: &mut ProfileSelection) {
@@ -99,4 +101,119 @@ pub fn draw_function_selection(f: &mut Frame, state: &mut FunctionSelection) {
         .style(Style::default().fg(Color::Green))
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(controls, chunks[2]);
+}
+
+use chrono::{DateTime, Local};
+
+pub fn draw_date_selection(f: &mut Frame, date_selection: &DateSelection) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // Title
+            Constraint::Length(5), // From date
+            Constraint::Length(5), // To date
+            Constraint::Length(3), // Controls
+        ])
+        .margin(2)
+        .split(f.size());
+
+    // Title
+    let title = Paragraph::new("Select Time Range")
+        .style(Style::default().add_modifier(Modifier::BOLD))
+        .alignment(Alignment::Center);
+    f.render_widget(title, chunks[0]);
+
+    // From date
+    let from_block = Block::default()
+        .title("From")
+        .borders(Borders::ALL)
+        .border_style(if date_selection.is_selecting_from {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default()
+        });
+
+    let from_text = format_date_with_highlight(
+        date_selection.from_date,
+        date_selection.is_selecting_from,
+        &date_selection.current_field,
+    );
+    let from = Paragraph::new(from_text).block(from_block);
+    f.render_widget(from, chunks[1]);
+
+    // To date
+    let to_block = Block::default()
+        .title("To")
+        .borders(Borders::ALL)
+        .border_style(if !date_selection.is_selecting_from {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default()
+        });
+
+    let to_text = format_date_with_highlight(
+        date_selection.to_date,
+        !date_selection.is_selecting_from,
+        &date_selection.current_field,
+    );
+    let to = Paragraph::new(to_text).block(to_block);
+    f.render_widget(to, chunks[2]);
+
+    // Controls
+    let controls = Paragraph::new(
+        "Tab: Switch Date | ←→: Select Field | ↑↓: Adjust Value | Enter: Confirm | Esc: Back",
+    )
+    .style(Style::default().fg(Color::Green))
+    .block(Block::default().borders(Borders::ALL));
+    f.render_widget(controls, chunks[3]);
+}
+
+fn format_date_with_highlight(
+    date: DateTime<Local>,
+    is_selected: bool,
+    current_field: &DateField,
+) -> Text {
+    if !is_selected {
+        return Text::raw(date.format("%Y-%m-%d %H:%M").to_string());
+    }
+
+    let year = date.format("%Y").to_string();
+    let month = date.format("%m").to_string();
+    let day = date.format("%d").to_string();
+    let hour = date.format("%H").to_string();
+    let minute = date.format("%M").to_string();
+
+    let highlight = Style::default().fg(Color::Yellow);
+
+    Text::from(vec![Line::from(vec![
+        if matches!(current_field, DateField::Year) {
+            Span::styled(year, highlight)
+        } else {
+            Span::raw(year)
+        },
+        Span::raw("-"),
+        if matches!(current_field, DateField::Month) {
+            Span::styled(month, highlight)
+        } else {
+            Span::raw(month)
+        },
+        Span::raw("-"),
+        if matches!(current_field, DateField::Day) {
+            Span::styled(day, highlight)
+        } else {
+            Span::raw(day)
+        },
+        Span::raw(" "),
+        if matches!(current_field, DateField::Hour) {
+            Span::styled(hour, highlight)
+        } else {
+            Span::raw(hour)
+        },
+        Span::raw(":"),
+        if matches!(current_field, DateField::Minute) {
+            Span::styled(minute, highlight)
+        } else {
+            Span::raw(minute)
+        },
+    ])])
 }

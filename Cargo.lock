@@ -2285,6 +2285,7 @@ dependencies = [
  "aws-config",
  "aws-sdk-lambda",
  "cargo-watch",
+ "chrono",
  "crossterm",
  "dirs 5.0.1",
  "ratatui",
