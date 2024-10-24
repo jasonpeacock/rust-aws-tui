@@ -8,7 +8,7 @@ use app_state::{
     date_selection::DateSelection, function_selection::FunctionSelection, log_viewer::LogViewer,
     profile_selection::ProfileSelection, AppState,
 };
-use chrono::Local;
+use config::Config;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -16,7 +16,6 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
-use toml_parser::read_aws_profiles;
 
 struct App {
     state: AppState,
@@ -28,7 +27,8 @@ struct App {
 
 impl App {
     async fn new() -> Result<Self> {
-        let profiles = read_aws_profiles()?;
+        let config = Config::new()?;
+        let profiles = config.aws_profiles;
         Ok(App {
             state: AppState::ProfileSelection,
             profile_selection: ProfileSelection::new(profiles),

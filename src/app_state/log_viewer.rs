@@ -1,10 +1,9 @@
 use anyhow::Result;
 use aws_config::Region;
-use aws_sdk_cloudwatchlogs::types::{FilteredLogEvent, OutputLogEvent};
+use aws_sdk_cloudwatchlogs::types::OutputLogEvent;
 use aws_sdk_cloudwatchlogs::Client as CloudWatchLogsClient;
 use chrono::{DateTime, Local};
 use std::sync::{Arc, Mutex};
-use tokio::spawn;
 
 #[derive(Debug)]
 pub struct LogViewer {
