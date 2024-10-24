@@ -107,29 +107,60 @@ pub fn draw_function_selection(f: &mut Frame, state: &mut FunctionSelection) {
 use chrono::{DateTime, Local};
 
 pub fn draw_date_selection(f: &mut Frame, date_selection: &DateSelection) {
-    let chunks = Layout::default()
+    // Title bar at the top
+    let layout_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3), // Title
-            Constraint::Length(3), // Quick ranges
-            Constraint::Length(5), // From date
-            Constraint::Length(5), // To date
-            Constraint::Length(3), // Controls
+            Constraint::Min(0),    // Rest of content
         ])
-        .margin(2)
+        .margin(1)
         .split(f.size());
 
-    // Title
     let title = Paragraph::new(format!(
-        "Select Time Range | Profile: {} | Function: {}",
+        "Log Viewer | Profile: {} | Function: {}",
         date_selection.profile_name, date_selection.function_name
     ))
     .style(Style::default().fg(Color::Cyan))
-    .block(Block::default().borders(Borders::ALL));
-    f.render_widget(title, chunks[0]);
+    .block(Block::default().borders(Borders::ALL))
+    .alignment(Alignment::Center);
 
-    // Quick ranges
-    let quick_ranges: Vec<Span> = date_selection
+    f.render_widget(title, layout_chunks[0]);
+
+    // Split into left and right panels
+    let content_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(35), // Left panel
+            Constraint::Min(1),     // Right panel
+        ])
+        .split(layout_chunks[1]);
+
+    // Left panel with its border
+    let left_panel = Block::default()
+        .borders(Borders::ALL)
+        .style(Style::default());
+    f.render_widget(left_panel.clone(), content_chunks[0]);
+
+    // Left panel inner layout
+    let left_inner = left_panel.inner(content_chunks[0]);
+    let left_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(12), // Quick ranges
+            Constraint::Length(12), // Custom range
+            Constraint::Min(0),     // Helper text
+        ])
+        .split(left_inner);
+
+    // Quick ranges section with focus state
+    let quick_ranges_style = if !date_selection.custom_selection {
+        Style::default().fg(Color::Yellow).bg(Color::DarkGray)
+    } else {
+        Style::default()
+    };
+
+    let quick_ranges: Vec<ListItem> = date_selection
         .quick_ranges
         .iter()
         .enumerate()
@@ -137,125 +168,143 @@ pub fn draw_date_selection(f: &mut Frame, date_selection: &DateSelection) {
             let style = if Some(i) == date_selection.selected_quick_range
                 && !date_selection.custom_selection
             {
-                Style::default().fg(Color::Yellow)
+                Style::default().fg(Color::Yellow).bg(Color::DarkGray)
             } else {
                 Style::default()
             };
-            Span::styled(range.display_name(), style)
+            ListItem::new(range.display_name()).style(style)
         })
         .collect();
 
-    let quick_ranges_text = Text::from(Line::from(quick_ranges));
-    let quick_ranges_widget = Paragraph::new(quick_ranges_text)
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(quick_ranges_widget, chunks[1]);
+    let quick_ranges_list = List::new(quick_ranges)
+        .block(
+            Block::default()
+                .title("Quick Ranges")
+                .title_style(quick_ranges_style)
+                .borders(Borders::ALL),
+        )
+        .highlight_style(Style::default().fg(Color::Yellow).bg(Color::DarkGray));
+    f.render_widget(quick_ranges_list, left_chunks[0]);
 
-    // From date
-    let from_block = Block::default()
-        .title("From")
-        .borders(Borders::ALL)
-        .border_style(
-            if date_selection.is_selecting_from && date_selection.custom_selection {
-                Style::default().fg(Color::Yellow)
-            } else {
-                Style::default()
-            },
-        );
+    // Custom range section with focus state
+    let custom_range_style = if date_selection.custom_selection {
+        Style::default().fg(Color::Yellow).bg(Color::DarkGray)
+    } else {
+        Style::default()
+    };
+
+    let custom_range_block = Block::default()
+        .title("Custom Range")
+        .title_style(custom_range_style)
+        .borders(Borders::ALL);
+    let custom_range_area = custom_range_block.inner(left_chunks[1]);
+    f.render_widget(custom_range_block, left_chunks[1]);
+
+    // From and To fields layout
+    let date_fields = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1), // From label
+            Constraint::Length(3), // From input
+            Constraint::Length(1), // To label
+            Constraint::Length(3), // To input
+        ])
+        .margin(1)
+        .split(custom_range_area);
+
+    // From label and input with focus state
+    let from_style = if date_selection.is_selecting_from && date_selection.custom_selection {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default()
+    };
+    let from_label = Paragraph::new("From").style(from_style);
+    f.render_widget(from_label, date_fields[0]);
 
     let from_text = format_date_with_highlight(
         date_selection.from_date,
         date_selection.is_selecting_from && date_selection.custom_selection,
         &date_selection.current_field,
     );
-    let from = Paragraph::new(from_text)
-        .block(from_block)
-        .alignment(Alignment::Center);
-    f.render_widget(from, chunks[2]);
+    let from_input = Paragraph::new(from_text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(from_style),
+        )
+        .alignment(Alignment::Left);
+    f.render_widget(from_input, date_fields[1]);
 
-    // To date
-    let to_block = Block::default()
-        .title("To")
-        .borders(Borders::ALL)
-        .border_style(
-            if !date_selection.is_selecting_from && date_selection.custom_selection {
-                Style::default().fg(Color::Yellow)
-            } else {
-                Style::default()
-            },
-        );
+    // To label and input with focus state
+    let to_style = if !date_selection.is_selecting_from && date_selection.custom_selection {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default()
+    };
+    let to_label = Paragraph::new("To").style(to_style);
+    f.render_widget(to_label, date_fields[2]);
 
     let to_text = format_date_with_highlight(
         date_selection.to_date,
         !date_selection.is_selecting_from && date_selection.custom_selection,
         &date_selection.current_field,
     );
-    let to = Paragraph::new(to_text)
-        .block(to_block)
-        .alignment(Alignment::Center);
-    f.render_widget(to, chunks[3]);
+    let to_input = Paragraph::new(to_text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(to_style),
+        )
+        .alignment(Alignment::Left);
+    f.render_widget(to_input, date_fields[3]);
 
-    // Controls
-    let controls = if date_selection.custom_selection {
-        "Tab: Switch Date | ←→: Select Field | ↑↓: Adjust Value | C: Quick Ranges | Enter: Confirm | Esc: Back"
+    // Update help text based on focus state
+    let help_text = if date_selection.custom_selection {
+        if date_selection.is_selecting_from {
+            "Tab: Switch to To | ←→: Select Field | ↑↓: Adjust Value | C: Quick Ranges | Enter: Confirm | Esc: Back"
+        } else {
+            "Tab: Switch to From | ←→: Select Field | ↑↓: Adjust Value | C: Quick Ranges | Enter: Confirm | Esc: Back"
+        }
     } else {
         "←→: Select Range | C: Custom | Enter: Confirm | Esc: Back"
     };
 
-    let controls_widget = Paragraph::new(controls)
+    let left_help = Paragraph::new(help_text)
         .style(Style::default().fg(Color::Green))
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(controls_widget, chunks[4]);
-}
+        .alignment(Alignment::Left);
+    f.render_widget(left_help, left_chunks[2]);
 
-fn format_date_with_highlight(
-    date: DateTime<Local>,
-    is_selected: bool,
-    current_field: &DateField,
-) -> Text {
-    if !is_selected {
-        return Text::raw(date.format("%Y-%m-%d %H:%M").to_string());
-    }
+    // Right panel with its border
+    let right_panel = Block::default()
+        .borders(Borders::ALL)
+        .style(Style::default());
+    f.render_widget(right_panel.clone(), content_chunks[1]);
 
-    let year = date.format("%Y").to_string();
-    let month = date.format("%m").to_string();
-    let day = date.format("%d").to_string();
-    let hour = date.format("%H").to_string();
-    let minute = date.format("%M").to_string();
+    // Right panel inner layout
+    let right_inner = right_panel.inner(content_chunks[1]);
+    let right_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // Filter
+            Constraint::Min(1),    // Logs
+            Constraint::Length(3), // Helper text
+        ])
+        .margin(1)
+        .split(right_inner);
 
-    let highlight = Style::default().fg(Color::Yellow);
+    // Filter
+    let filter = Block::default().title("Filter").borders(Borders::ALL);
+    f.render_widget(filter, right_chunks[0]);
 
-    Text::from(vec![Line::from(vec![
-        if matches!(current_field, DateField::Year) {
-            Span::styled(year, highlight)
-        } else {
-            Span::raw(year)
-        },
-        Span::raw("-"),
-        if matches!(current_field, DateField::Month) {
-            Span::styled(month, highlight)
-        } else {
-            Span::raw(month)
-        },
-        Span::raw("-"),
-        if matches!(current_field, DateField::Day) {
-            Span::styled(day, highlight)
-        } else {
-            Span::raw(day)
-        },
-        Span::raw(" "),
-        if matches!(current_field, DateField::Hour) {
-            Span::styled(hour, highlight)
-        } else {
-            Span::raw(hour)
-        },
-        Span::raw(":"),
-        if matches!(current_field, DateField::Minute) {
-            Span::styled(minute, highlight)
-        } else {
-            Span::raw(minute)
-        },
-    ])])
+    // Logs
+    let logs = Block::default().title("Logs").borders(Borders::ALL);
+    f.render_widget(logs, right_chunks[1]);
+
+    // Right panel helper text
+    let right_help = Paragraph::new("Helper Text")
+        .style(Style::default().fg(Color::Green))
+        .alignment(Alignment::Left);
+    f.render_widget(right_help, right_chunks[2]);
 }
 
 pub fn draw_log_viewer(f: &mut Frame, state: &LogViewer) {
@@ -408,4 +457,89 @@ pub fn draw_log_viewer(f: &mut Frame, state: &LogViewer) {
         .style(Style::default().fg(Color::Green))
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(controls_widget, chunks[3]);
+}
+
+fn format_date_with_highlight(
+    date: DateTime<Local>,
+    is_selected: bool,
+    current_field: &DateField,
+) -> Text<'static> {
+    let date_str = date.format("%Y-%m-%d %H:%M").to_string();
+    let mut spans = Vec::new();
+
+    if !is_selected {
+        spans.push(Span::raw(date_str));
+    } else {
+        // Create owned strings first
+        let date_parts = (
+            date_str[0..4].to_string(),   // Year
+            date_str[5..7].to_string(),   // Month
+            date_str[8..10].to_string(),  // Day
+            date_str[11..13].to_string(), // Hour
+            date_str[14..16].to_string(), // Minute
+        );
+
+        // Styles for different states
+        let highlight_style = Style::default()
+            .fg(Color::Black)
+            .bg(Color::Yellow)
+            .add_modifier(Modifier::BOLD);
+        let active_style = Style::default().fg(Color::Yellow);
+        let normal_style = Style::default();
+
+        spans.extend(vec![
+            Span::styled(
+                date_parts.0,
+                if matches!(current_field, DateField::Year) {
+                    highlight_style
+                } else {
+                    active_style
+                },
+            ),
+            Span::styled("-", normal_style),
+            Span::styled(
+                date_parts.1,
+                if matches!(current_field, DateField::Month) {
+                    highlight_style
+                } else {
+                    active_style
+                },
+            ),
+            Span::styled("-", normal_style),
+            Span::styled(
+                date_parts.2,
+                if matches!(current_field, DateField::Day) {
+                    highlight_style
+                } else {
+                    active_style
+                },
+            ),
+            Span::styled(" ", normal_style),
+            Span::styled(
+                date_parts.3,
+                if matches!(current_field, DateField::Hour) {
+                    highlight_style
+                } else {
+                    active_style
+                },
+            ),
+            Span::styled(":", normal_style),
+            Span::styled(
+                date_parts.4,
+                if matches!(current_field, DateField::Minute) {
+                    highlight_style
+                } else {
+                    active_style
+                },
+            ),
+        ]);
+    }
+
+    // Convert spans to owned data
+    let owned_spans: Vec<Span<'static>> = spans
+        .into_iter()
+        .map(|span| Span::styled(span.content.to_string(), span.style))
+        .collect();
+
+    Text::from(Line::from(owned_spans))
 }
