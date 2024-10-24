@@ -120,9 +120,12 @@ pub fn draw_date_selection(f: &mut Frame, date_selection: &DateSelection) {
         .split(f.size());
 
     // Title
-    let title = Paragraph::new("Select Time Range")
-        .style(Style::default().add_modifier(Modifier::BOLD))
-        .alignment(Alignment::Center);
+    let title = Paragraph::new(format!(
+        "Select Time Range | Profile: {} | Function: {}",
+        date_selection.profile_name, date_selection.function_name
+    ))
+    .style(Style::default().fg(Color::Cyan))
+    .block(Block::default().borders(Borders::ALL));
     f.render_widget(title, chunks[0]);
 
     // Quick ranges

@@ -49,8 +49,14 @@ impl App {
     }
 
     fn enter_date_selection(&mut self) {
-        self.date_selection = Some(DateSelection::new());
-        self.state = AppState::DateSelection;
+        if let Some(function_selection) = &self.function_selection {
+            let profile_name = function_selection.profile.name.clone();
+            let function_name =
+                function_selection.filtered_functions[function_selection.selected_index].clone();
+
+            self.date_selection = Some(DateSelection::new(profile_name, function_name));
+            self.state = AppState::DateSelection;
+        }
     }
 
     async fn enter_log_viewer(&mut self) -> Result<()> {
@@ -208,6 +214,8 @@ async fn main() -> Result<()> {
                                     log_viewer.filter_input.pop();
                                     log_viewer.update_filter();
                                 }
+                                KeyCode::PageUp => log_viewer.page_up(10),
+                                KeyCode::PageDown => log_viewer.page_down(10),
                                 _ => {}
                             }
                         }

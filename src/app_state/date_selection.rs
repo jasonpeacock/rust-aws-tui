@@ -64,6 +64,8 @@ impl QuickRange {
 
 #[derive(Debug)]
 pub struct DateSelection {
+    pub profile_name: String,
+    pub function_name: String,
     pub from_date: DateTime<Local>,
     pub to_date: DateTime<Local>,
     pub is_selecting_from: bool,
@@ -74,15 +76,17 @@ pub struct DateSelection {
 }
 
 impl DateSelection {
-    pub fn new() -> Self {
+    pub fn new(profile_name: String, function_name: String) -> Self {
         let now = Local::now();
         Self {
+            profile_name,
+            function_name,
             from_date: now - Duration::hours(1),
             to_date: now,
             is_selecting_from: true,
             current_field: DateField::Day,
             quick_ranges: QuickRange::all(),
-            selected_quick_range: Some(0), // Default to first quick range
+            selected_quick_range: Some(0),
             custom_selection: false,
         }
     }
