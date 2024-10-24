@@ -151,6 +151,16 @@ async fn main() -> Result<()> {
                                     function_selection.filter_input.pop();
                                     function_selection.update_filter().await?;
                                 }
+                                KeyCode::PageUp => {
+                                    for _ in 0..10 {
+                                        function_selection.previous();
+                                    }
+                                }
+                                KeyCode::PageDown => {
+                                    for _ in 0..10 {
+                                        function_selection.next();
+                                    }
+                                }
                                 _ => {}
                             }
                         }
