@@ -2,6 +2,7 @@ mod app_state;
 mod config;
 mod toml_parser;
 mod ui;
+mod utils;
 
 use anyhow::Result;
 use app_state::{

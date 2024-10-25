@@ -2,12 +2,11 @@ use anyhow::Result;
 use aws_config::{BehaviorVersion, Region};
 use aws_sdk_lambda::Client as LambdaClient;
 use ratatui::widgets::ListState;
-use std::fs;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::spawn;
 
 use crate::toml_parser::Profile;
+use crate::utils::{cache_functions, load_cached_functions};
 
 #[derive(Debug)]
 pub struct FunctionSelection {
@@ -17,7 +16,6 @@ pub struct FunctionSelection {
     pub selected_index: usize,
     pub filter_input: String,
     pub list_state: ListState,
-    aws_client: Option<LambdaClient>,
 }
 
 impl FunctionSelection {
@@ -29,83 +27,88 @@ impl FunctionSelection {
             selected_index: 0,
             filter_input: String::new(),
             list_state: ListState::default(),
-            aws_client: None,
         }
-    }
-
-    fn get_cache_path(&self) -> PathBuf {
-        let cache_dir = dirs::cache_dir()
-            .unwrap_or_else(|| PathBuf::from("/tmp"))
-            .join("lambda-tui");
-        fs::create_dir_all(&cache_dir).unwrap_or_default();
-        cache_dir.join(format!("functions_{}.cache", self.profile.name))
-    }
-
-    async fn fetch_all_functions(&self, client: &LambdaClient) -> Result<Vec<String>> {
-        let mut functions = Vec::new();
-        let mut next_marker = None;
-
-        loop {
-            let mut request = client.list_functions();
-            if let Some(marker) = &next_marker {
-                request = request.marker(marker);
-            }
-
-            let resp = request.send().await?;
-
-            if let Some(func_list) = &resp.functions {
-                let function_names: Vec<String> = func_list
-                    .iter()
-                    .filter_map(|f| f.function_name().map(String::from))
-                    .collect();
-                functions.extend(function_names);
-            }
-
-            next_marker = resp.next_marker().map(ToString::to_string);
-            if next_marker.is_none() {
-                break;
-            }
-        }
-
-        Ok(functions)
     }
 
     pub async fn load_functions(&mut self) -> Result<()> {
-        // Initialize AWS client
-        let aws_config = aws_config::defaults(BehaviorVersion::v2024_03_28())
+        // Try to load from cache first
+        if let Some(cached_functions) =
+            load_cached_functions(&self.profile.name, &self.profile.region)?
+        {
+            // Update UI immediately with cached data
+            self.lambda_functions.lock().unwrap().clear();
+            self.lambda_functions
+                .lock()
+                .unwrap()
+                .extend(cached_functions);
+            self.filtered_functions = self.lambda_functions.lock().unwrap().clone();
+            self.list_state.select(Some(0));
+
+            // Clone necessary data for background task
+            let profile_name = self.profile.name.clone();
+            let profile_region = self.profile.region.clone();
+            let lambda_functions = Arc::clone(&self.lambda_functions);
+
+            // Spawn background task to update cache
+            spawn(async move {
+                if let Err(e) = update_functions_in_background(
+                    profile_name.clone(),
+                    profile_region.clone(),
+                    lambda_functions,
+                )
+                .await
+                {
+                    eprintln!("Background update failed: {}", e);
+                }
+            });
+
+            return Ok(());
+        }
+
+        // If no cache exists, load directly from AWS
+        self.load_functions_from_aws().await
+    }
+
+    async fn load_functions_from_aws(&mut self) -> Result<()> {
+        let config = aws_config::defaults(BehaviorVersion::latest())
             .profile_name(&self.profile.name)
             .region(Region::new(self.profile.region.clone()))
             .load()
             .await;
 
-        let client = LambdaClient::new(&aws_config);
-        self.aws_client = Some(client.clone());
+        let client = LambdaClient::new(&config);
+        let mut functions = Vec::new();
+        let mut next_marker = None;
 
-        // Try to load from cache first
-        let cache_path = self.get_cache_path();
-        if let Ok(cached_content) = fs::read_to_string(&cache_path) {
-            let cached_functions: Vec<String> = cached_content.lines().map(String::from).collect();
-            if !cached_functions.is_empty() {
-                *self.lambda_functions.lock().unwrap() = cached_functions;
-                self.filtered_functions = self.lambda_functions.lock().unwrap().clone();
-                self.list_state.select(Some(0));
+        loop {
+            let mut request = client.list_functions();
+            if let Some(marker) = next_marker {
+                request = request.marker(marker);
+            }
+
+            let response = request.send().await?;
+            let function_list = response.functions();
+            for function in function_list {
+                if let Some(name) = &function.function_name {
+                    functions.push(name.clone())
+                }
+            }
+
+            next_marker = response.next_marker().map(String::from);
+            if next_marker.is_none() {
+                break;
             }
         }
 
-        // Fetch functions before spawning
-        let fresh_functions = self.fetch_all_functions(&client).await?;
-        let lambda_functions = Arc::clone(&self.lambda_functions);
-        let cache_path = self.get_cache_path();
+        functions.sort();
 
-        spawn(async move {
-            // Update the functions list
-            *lambda_functions.lock().unwrap() = fresh_functions.clone();
+        // Cache the functions
+        cache_functions(&self.profile.name, &self.profile.region, &functions)?;
 
-            // Update cache file
-            let content = fresh_functions.join("\n");
-            fs::write(cache_path, content).unwrap_or_default();
-        });
-
+        self.lambda_functions.lock().unwrap().clear();
+        self.lambda_functions.lock().unwrap().extend(functions);
+        self.filtered_functions = self.lambda_functions.lock().unwrap().clone();
+        self.list_state.select(Some(0));
         Ok(())
     }
 
@@ -148,4 +151,52 @@ impl FunctionSelection {
             self.list_state.select(Some(self.selected_index));
         }
     }
+}
+
+async fn update_functions_in_background(
+    profile_name: String,
+    profile_region: String,
+    lambda_functions: Arc<Mutex<Vec<String>>>,
+) -> Result<()> {
+    let config = aws_config::defaults(BehaviorVersion::latest())
+        .profile_name(&profile_name)
+        .region(Region::new(profile_region.clone()))
+        .load()
+        .await;
+
+    let client = LambdaClient::new(&config);
+    let mut functions = Vec::new();
+    let mut next_marker = None;
+
+    loop {
+        let mut request = client.list_functions();
+        if let Some(marker) = next_marker {
+            request = request.marker(marker);
+        }
+
+        let response = request.send().await?;
+        let function_list = response.functions();
+        for function in function_list {
+            if let Some(name) = &function.function_name {
+                functions.push(name.clone())
+            }
+        }
+
+        next_marker = response.next_marker().map(String::from);
+        if next_marker.is_none() {
+            break;
+        }
+    }
+
+    functions.sort();
+
+    // Update cache
+    cache_functions(&profile_name, &profile_region, &functions)?;
+
+    // Update the shared functions list
+    let mut functions_lock = lambda_functions.lock().unwrap();
+    functions_lock.clear();
+    functions_lock.extend(functions);
+
+    Ok(())
 }

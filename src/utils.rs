@@ -1,79 +1,39 @@
-fn format_date_with_highlight(
-    date: DateTime<Local>,
-    is_selected: bool,
-    current_field: &DateField,
-) -> Text<'static> {
-    let date_str = date.format("%Y-%m-%d %H:%M").to_string();
-    let mut spans = Vec::new();
+use anyhow::Result;
+use std::fs;
+use std::path::PathBuf;
 
-    if !is_selected {
-        spans.push(Span::raw(date_str));
-    } else {
-        // Create owned strings first
-        let date_parts = (
-            date_str[0..4].to_string(),
-            date_str[5..7].to_string(),
-            date_str[8..10].to_string(),
-            date_str[11..13].to_string(),
-            date_str[14..16].to_string(),
-        );
+pub fn get_cache_dir() -> Result<PathBuf> {
+    let cache_dir = dirs::cache_dir()
+        .ok_or_else(|| anyhow::anyhow!("Could not find cache directory"))?
+        .join("aws-logs-viewer");
 
-        let highlight_style = Style::default().fg(Color::Yellow).bg(Color::DarkGray);
-        let normal_style = Style::default();
-
-        spans.extend(vec![
-            Span::styled(
-                date_parts.0,
-                if matches!(current_field, DateField::Year) {
-                    highlight_style
-                } else {
-                    normal_style
-                },
-            ),
-            Span::raw("-"),
-            Span::styled(
-                date_parts.1,
-                if matches!(current_field, DateField::Month) {
-                    highlight_style
-                } else {
-                    normal_style
-                },
-            ),
-            Span::raw("-"),
-            Span::styled(
-                date_parts.2,
-                if matches!(current_field, DateField::Day) {
-                    highlight_style
-                } else {
-                    normal_style
-                },
-            ),
-            Span::raw(" "),
-            Span::styled(
-                date_parts.3,
-                if matches!(current_field, DateField::Hour) {
-                    highlight_style
-                } else {
-                    normal_style
-                },
-            ),
-            Span::raw(":"),
-            Span::styled(
-                date_parts.4,
-                if matches!(current_field, DateField::Minute) {
-                    highlight_style
-                } else {
-                    normal_style
-                },
-            ),
-        ]);
+    if !cache_dir.exists() {
+        fs::create_dir_all(&cache_dir)?;
     }
 
-    // Convert spans to owned data by cloning the strings
-    let owned_spans: Vec<Span<'static>> = spans
-        .into_iter()
-        .map(|span| Span::raw(span.content.to_string()))
-        .collect();
+    Ok(cache_dir)
+}
 
-    Text::from(Line::from(owned_spans))
+pub fn get_functions_cache_path(profile_name: &str, region: &str) -> Result<PathBuf> {
+    let cache_dir = get_cache_dir()?;
+    Ok(cache_dir.join(format!("functions_{}_{}.cache", profile_name, region)))
+}
+
+pub fn cache_functions(profile_name: &str, region: &str, functions: &[String]) -> Result<()> {
+    let cache_path = get_functions_cache_path(profile_name, region)?;
+    let cache_content = serde_json::to_string(functions)?;
+    fs::write(cache_path, cache_content)?;
+    Ok(())
+}
+
+pub fn load_cached_functions(profile_name: &str, region: &str) -> Result<Option<Vec<String>>> {
+    let cache_path = get_functions_cache_path(profile_name, region)?;
+
+    if !cache_path.exists() {
+        return Ok(None);
+    }
+
+    let cache_content = fs::read_to_string(cache_path)?;
+    let functions: Vec<String> = serde_json::from_str(&cache_content)?;
+    Ok(Some(functions))
 }
