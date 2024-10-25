@@ -21,8 +21,8 @@ A terminal-based user interface (TUI) application for viewing AWS Lambda functio
 
 1. Clone the repository:
 
-git clone https://github.com/yourusername/aws-lambda-logs-viewer.git
-cd aws-lambda-logs-viewer
+git clone https://github.com/resola-ai/rust-aws-tui
+cd rust-aws-tui
 
 2. Build and install:
 
