@@ -43,7 +43,7 @@ pub fn draw_profile_selection(f: &mut Frame, state: &mut ProfileSelection) {
     f.render_stateful_widget(profiles_list, chunks[1], &mut state.list_state);
 
     // Controls
-    let controls = Paragraph::new("↑↓: Navigate profiles | Enter: Select | q: Quit")
+    let controls = Paragraph::new("↑↓ or j/k: Navigate profiles | Enter: Select | q: Quit")
         .style(Style::default().fg(Color::Green))
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(controls, chunks[2]);

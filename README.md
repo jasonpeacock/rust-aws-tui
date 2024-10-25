@@ -38,7 +38,7 @@ cargo install --path .
 
 ### Basic Navigation
 
-- Use `↑`/`↓` arrows to navigate through lists
+- Use `↑`/`↓` or `k`/`j` to navigate through lists
 - `Tab` to switch between panels
 - `Enter` to select/confirm
 - `Esc` to go back/cancel

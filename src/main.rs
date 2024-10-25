@@ -124,8 +124,8 @@ async fn main() -> Result<()> {
                 match app.state {
                     AppState::ProfileSelection => match key.code {
                         KeyCode::Char('q') => break,
-                        KeyCode::Up => app.profile_selection.previous(),
-                        KeyCode::Down => app.profile_selection.next(),
+                        KeyCode::Up | KeyCode::Char('k') => app.profile_selection.previous(),
+                        KeyCode::Down | KeyCode::Char('j') => app.profile_selection.next(),
                         KeyCode::Enter => {
                             app.select_profile().await?;
                         }
