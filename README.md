@@ -34,6 +34,8 @@ cargo install --path .
 
 ## Usage
 
+- Update config.toml with your AWS profiles and regions.
+
 ### Basic Navigation
 
 - Use `↑`/`↓` arrows to navigate through lists
