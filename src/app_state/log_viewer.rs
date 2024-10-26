@@ -3,7 +3,10 @@ use aws_config::Region;
 use aws_sdk_cloudwatchlogs::types::OutputLogEvent;
 use aws_sdk_cloudwatchlogs::Client as CloudWatchLogsClient;
 use chrono::{DateTime, Local};
+use serde_json;
 use std::sync::{Arc, Mutex};
+
+use crate::utils::ui_utils::format_json;
 
 #[derive(Debug)]
 pub struct LogViewer {
@@ -18,6 +21,7 @@ pub struct LogViewer {
     pub expanded: bool,
     cloudwatch_client: Option<CloudWatchLogsClient>,
     pub scroll_position: usize,
+    pub start_index: usize, // Add this field to track list scroll position
 }
 
 impl LogViewer {
@@ -38,6 +42,7 @@ impl LogViewer {
             expanded: false,
             cloudwatch_client: None,
             scroll_position: 0,
+            start_index: 0, // Initialize start_index
         }
     }
 
@@ -134,33 +139,26 @@ impl LogViewer {
 
     pub fn scroll_up(&mut self) {
         if self.expanded {
-            self.scroll_offset = self.scroll_offset.saturating_sub(1);
-        } else if let Some(selected) = self.selected_log {
-            if selected > 0 {
-                self.selected_log = Some(selected - 1);
-                // Adjust scroll offset to keep selection in view
-                if selected <= self.scroll_offset {
-                    self.scroll_offset = self.scroll_offset.saturating_sub(1);
-                }
-            }
-        } else if !self.filtered_logs.is_empty() {
-            self.selected_log = Some(0);
-            self.scroll_offset = 0;
+            self.scroll_position = self.scroll_position.saturating_sub(1);
         }
     }
 
     pub fn scroll_down(&mut self) {
-        if self.expanded {
-            self.scroll_offset = self.scroll_offset.saturating_add(1);
-        } else if let Some(selected) = self.selected_log {
-            if selected < self.filtered_logs.len().saturating_sub(1) {
-                self.selected_log = Some(selected + 1);
-                // Adjust scroll offset to keep selection in view
-                self.scroll_offset = self.scroll_offset.saturating_add(1);
+        if let Some(log) = self.get_selected_log() {
+            if let Some(message) = &log.message {
+                let line_count =
+                    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(message) {
+                        // Count JSON formatted lines
+                        format_json(&json_value, 0).len()
+                    } else {
+                        // Count regular message lines
+                        message.lines().count()
+                    };
+                self.scroll_position = self
+                    .scroll_position
+                    .saturating_add(1)
+                    .min(line_count.saturating_sub(1));
             }
-        } else if !self.filtered_logs.is_empty() {
-            self.selected_log = Some(0);
-            self.scroll_offset = 0;
         }
     }
 
@@ -190,13 +188,24 @@ impl LogViewer {
         self.selected_log.and_then(|i| self.filtered_logs.get(i))
     }
 
-    pub fn page_up(&mut self, page_size: usize) {
-        self.scroll_offset = self.scroll_offset.saturating_sub(page_size);
+    pub fn page_up(&mut self) {
+        if self.expanded {
+            self.scroll_position = self.scroll_position.saturating_sub(10);
+        }
     }
 
-    pub fn page_down(&mut self, page_size: usize) {
-        if !self.filtered_logs.is_empty() {
-            self.scroll_offset = (self.scroll_offset + page_size).min(self.filtered_logs.len() - 1);
+    pub fn page_down(&mut self) {
+        if let Some(log) = self.get_selected_log() {
+            if let Some(message) = &log.message {
+                let line_count =
+                    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(message) {
+                        format_json(&json_value, 0).len()
+                    } else {
+                        message.lines().count()
+                    };
+                self.scroll_position =
+                    (self.scroll_position + 10).min(line_count.saturating_sub(1));
+            }
         }
     }
 
@@ -221,6 +230,31 @@ impl LogViewer {
             (start, end)
         } else {
             (0, visible_height.min(total_logs))
+        }
+    }
+
+    pub fn move_selection(&mut self, direction: i32, visible_height: usize) {
+        if self.filtered_logs.is_empty() {
+            return;
+        }
+
+        if let Some(current) = self.selected_log {
+            let new_index = if direction > 0 {
+                current.saturating_add(1).min(self.filtered_logs.len() - 1)
+            } else {
+                current.saturating_sub(1)
+            };
+            self.selected_log = Some(new_index);
+
+            // Update scroll position for list view
+            if !self.expanded {
+                // Adjust start_index to keep selection visible
+                if new_index >= self.start_index + visible_height {
+                    self.start_index = new_index.saturating_sub(visible_height - 1);
+                } else if new_index < self.start_index {
+                    self.start_index = new_index;
+                }
+            }
         }
     }
 }

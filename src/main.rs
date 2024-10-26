@@ -245,14 +245,36 @@ async fn main() -> Result<()> {
                                     app.log_viewer = None;
                                 }
                                 KeyCode::Up => {
-                                    if app.state == AppState::LogViewer {
+                                    if log_viewer.expanded {
                                         log_viewer.scroll_up();
                                     } else {
-                                        log_viewer.filter_input.pop();
+                                        log_viewer.move_selection(
+                                            -1,
+                                            terminal.size().unwrap().height as usize - 8,
+                                        );
                                     }
                                 }
-                                KeyCode::Down if !log_viewer.expanded => log_viewer.scroll_down(),
-                                KeyCode::Enter => log_viewer.toggle_expand(),
+                                KeyCode::Down => {
+                                    if log_viewer.expanded {
+                                        // Get the content height from the current log message
+                                        if let Some(log) = log_viewer.get_selected_log() {
+                                            let message = log.message.as_deref().unwrap_or("");
+                                            let content_height = message.lines().count();
+                                            let visible_height =
+                                                terminal.size().unwrap().height as usize - 8;
+                                            log_viewer.scroll_down();
+                                        }
+                                    } else {
+                                        log_viewer.move_selection(
+                                            1,
+                                            terminal.size().unwrap().height as usize - 8,
+                                        );
+                                    }
+                                }
+                                KeyCode::Enter => {
+                                    log_viewer.toggle_expand();
+                                    log_viewer.scroll_position = 0; // Reset scroll position when toggling
+                                }
                                 KeyCode::Char(c) if !log_viewer.expanded => {
                                     log_viewer.filter_input.push(c);
                                     log_viewer.update_filter();
@@ -261,8 +283,22 @@ async fn main() -> Result<()> {
                                     log_viewer.filter_input.pop();
                                     log_viewer.update_filter();
                                 }
-                                KeyCode::PageUp => log_viewer.page_up(10),
-                                KeyCode::PageDown => log_viewer.page_down(10),
+                                KeyCode::PageUp => {
+                                    if log_viewer.expanded {
+                                        log_viewer.scroll_position =
+                                            log_viewer.scroll_position.saturating_sub(10);
+                                    } else {
+                                        log_viewer.page_up();
+                                    }
+                                }
+                                KeyCode::PageDown => {
+                                    if log_viewer.expanded {
+                                        log_viewer.scroll_position =
+                                            log_viewer.scroll_position.saturating_add(10);
+                                    } else {
+                                        log_viewer.page_down();
+                                    }
+                                }
                                 _ => {}
                             }
                         }

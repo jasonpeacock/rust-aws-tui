@@ -1,14 +1,20 @@
-use crate::app_state::{
-    date_selection::{DateField, DateSelection},
-    log_viewer::LogViewer,
-    FocusedPanel,
+use crate::{
+    app_state::{
+        date_selection::{DateField, DateSelection},
+        log_viewer::LogViewer,
+        FocusedPanel,
+    },
+    utils::ui_utils::format_json,
 };
 use chrono::{DateTime, Local};
 use ratatui::{
-    layout::{Alignment, Constraint, Corner, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Corner, Direction, Layout, Margin, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
+    widgets::{
+        Block, Borders, Clear, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation,
+        ScrollbarState,
+    },
     Frame,
 };
 
@@ -132,8 +138,6 @@ fn draw_logs_panel(
 }
 
 fn draw_expanded_log(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layout::Rect) {
-    // Clear the entire area with spaces
-
     if let Some(log) = log_viewer.get_selected_log() {
         let message = log.message.as_deref().unwrap_or("");
         let timestamp = DateTime::<Local>::from(
@@ -149,7 +153,7 @@ fn draw_expanded_log(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layou
             ])
             .split(area);
 
-        // Header
+        // Header with timestamp
         let header = Paragraph::new(vec![Line::from(vec![
             Span::styled("Timestamp: ", Style::default().add_modifier(Modifier::BOLD)),
             Span::styled(
@@ -160,14 +164,57 @@ fn draw_expanded_log(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layou
         .block(Block::default().borders(Borders::ALL).title("Log Details"));
         f.render_widget(header, layout[0]);
 
-        // Content
-        let formatted_content = format_log_message(message);
+        // Format message content
+        let formatted_content =
+            if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(message) {
+                // If it's valid JSON, format it nicely
+                let formatted_lines = format_json(&json_value, 0);
+                Text::from(formatted_lines)
+            } else {
+                // If it's not JSON, format as regular log message
+                Text::from(format_log_message(message))
+            };
+
+        // Content area with scrollbar
+        let content_area = layout[1];
+        let inner_area = content_area.inner(&Margin {
+            vertical: 1,
+            horizontal: 1,
+        });
+
+        // Count actual lines after formatting
+        let line_count = formatted_content.lines.len();
+        let viewport_height = inner_area.height as usize;
+
+        // Create content paragraph with scroll
         let content = Paragraph::new(formatted_content)
-            .block(Block::default().borders(Borders::ALL).title("Message"))
+            .block(Block::default().borders(Borders::ALL).title(format!(
+                "Message (Line {} of {})",
+                log_viewer.scroll_position + 1,
+                line_count
+            )))
             .wrap(ratatui::widgets::Wrap { trim: false })
             .scroll((log_viewer.scroll_position as u16, 0));
-        f.render_widget(Clear, layout[1]);
-        f.render_widget(content, layout[1]); // Uncomment this line
+
+        f.render_widget(content, content_area);
+
+        // Only render scrollbar if content is scrollable
+        if line_count > viewport_height {
+            let mut scrollbar_state = ScrollbarState::default()
+                .content_length(line_count)
+                .position(log_viewer.scroll_position);
+
+            f.render_stateful_widget(
+                Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                    .begin_symbol(Some("↑"))
+                    .end_symbol(Some("↓")),
+                content_area.inner(&Margin {
+                    vertical: 1,
+                    horizontal: 0,
+                }),
+                &mut scrollbar_state,
+            );
+        }
     }
 }
 
@@ -188,7 +235,7 @@ fn draw_log_list(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layout::R
         );
     }
 
-    let available_width = area.width.saturating_sub(2) as usize;
+    let available_width = area.width.saturating_sub(4) as usize; // Subtract 4 for borders and scrollbar
     let timestamp_width = "YYYY-MM-DD HH:MM:SS ".len();
     let message_width = available_width.saturating_sub(timestamp_width);
 
@@ -213,7 +260,6 @@ fn draw_log_list(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layout::R
                     + std::time::Duration::from_millis(log.timestamp.unwrap_or(0) as u64),
             );
 
-            // Add a marker for the selected log
             let timestamp_prefix = if Some(i) == log_viewer.selected_log {
                 "→ "
             } else {
@@ -229,35 +275,50 @@ fn draw_log_list(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layout::R
                 Style::default().fg(Color::Gray),
             );
 
-            let wrapped_message = textwrap::wrap(message, message_width);
             let mut lines = Vec::new();
+            let message_lines: Vec<&str> = message.lines().collect();
 
-            // First line with timestamp
-            let mut first_line_spans = vec![timestamp_span];
-            if let Some(first_msg) = wrapped_message.first() {
+            // Process first line with timestamp
+            if let Some(first_msg) = message_lines.first() {
+                let mut first_line_spans = vec![timestamp_span];
+                let truncated_msg = truncate_to_width(first_msg, message_width);
+
                 if log_viewer.filter_input.is_empty() {
-                    first_line_spans.push(Span::raw(first_msg.to_string()));
+                    first_line_spans.push(Span::raw(truncated_msg));
                 } else {
                     add_highlighted_message_spans(
                         &mut first_line_spans,
-                        first_msg,
+                        &truncated_msg,
                         &log_viewer.filter_input,
                     );
                 }
+                lines.push(Line::from(first_line_spans));
             }
-            lines.push(Line::from(first_line_spans));
 
-            // Remaining lines with proper indentation
-            for msg in wrapped_message.iter().skip(1) {
-                let mut line_spans = vec![
-                    Span::raw(" ".repeat(timestamp_width + 2)), // +2 for the arrow/space prefix
-                ];
+            // Process remaining lines with indentation
+            for msg in message_lines.iter().skip(1).take(2) {
+                // Show max 3 lines per log
+                let mut line_spans = vec![Span::raw(" ".repeat(timestamp_width + 2))];
+                let truncated_msg = truncate_to_width(msg, message_width);
+
                 if log_viewer.filter_input.is_empty() {
-                    line_spans.push(Span::raw(msg.to_string()));
+                    line_spans.push(Span::raw(truncated_msg));
                 } else {
-                    add_highlighted_message_spans(&mut line_spans, msg, &log_viewer.filter_input);
+                    add_highlighted_message_spans(
+                        &mut line_spans,
+                        &truncated_msg,
+                        &log_viewer.filter_input,
+                    );
                 }
                 lines.push(Line::from(line_spans));
+            }
+
+            // Add ellipsis if there are more lines
+            if message_lines.len() > 3 {
+                lines.push(Line::from(vec![
+                    Span::raw(" ".repeat(timestamp_width + 2)),
+                    Span::styled("...", Style::default().fg(Color::DarkGray)),
+                ]));
             }
 
             let style = if Some(i) == log_viewer.selected_log {
@@ -290,7 +351,38 @@ fn draw_log_list(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layout::R
         )
         .start_corner(Corner::TopLeft);
 
+    f.render_widget(Clear, area);
     f.render_widget(logs_list, area);
+
+    // Add scrollbar if there are more logs than visible space
+    if total_logs > visible_height {
+        // Update scrollbar position to follow selected item
+        let scrollbar_position = if let Some(selected_idx) = log_viewer.selected_log {
+            // Ensure selected item is always visible in the scrollbar viewport
+            if selected_idx >= start_idx && selected_idx < end_idx {
+                selected_idx // Use selected index as position when it's in view
+            } else {
+                start_idx // Otherwise use the current scroll position
+            }
+        } else {
+            start_idx
+        };
+
+        let mut scrollbar_state = ScrollbarState::default()
+            .content_length(total_logs)
+            .position(scrollbar_position);
+
+        f.render_stateful_widget(
+            Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(Some("↑"))
+                .end_symbol(Some("↓")),
+            area.inner(&Margin {
+                vertical: 1,
+                horizontal: 0,
+            }),
+            &mut scrollbar_state,
+        );
+    }
 }
 
 fn add_highlighted_message_spans(spans: &mut Vec<Span<'static>>, text: &str, filter: &str) {
@@ -377,88 +469,53 @@ fn format_log_message(message: &str) -> Vec<Line<'static>> {
 }
 
 // Add this function to format JSON content
-fn format_json(value: &serde_json::Value, indent: usize) -> Vec<Line<'static>> {
-    let mut lines = Vec::new();
-    let indent_str = " ".repeat(indent);
 
-    match value {
-        serde_json::Value::Object(map) => {
-            lines.push(Line::from(format!("{}{{", indent_str)));
-            let mut iter = map.iter().peekable();
-            while let Some((key, value)) = iter.next() {
-                let comma = if iter.peek().is_some() { "," } else { "" };
-                match value {
-                    serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
-                        lines.push(Line::from(vec![
-                            Span::raw(format!("{}  ", indent_str)),
-                            Span::styled(key.clone(), Style::default().fg(Color::Cyan)),
-                            Span::raw(": "),
-                        ]));
-                        lines.extend(format_json(value, indent + 2));
-                        if !comma.is_empty() {
-                            lines
-                                .last_mut()
-                                .map(|line| line.spans.push(Span::raw(comma)));
-                        }
-                    }
-                    _ => {
-                        lines.push(Line::from(vec![
-                            Span::raw(format!("{}  ", indent_str)),
-                            Span::styled(key.clone(), Style::default().fg(Color::Cyan)),
-                            Span::raw(": "),
-                            format_json_value(value),
-                            Span::raw(comma),
-                        ]));
-                    }
-                }
+// Add this helper function at the end of the file
+fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    let mut wrapped = Vec::new();
+    let mut line = String::new();
+    let mut line_length = 0;
+
+    for word in text.split_whitespace() {
+        let word_length = word.len();
+
+        if line_length + word_length + 1 <= width {
+            // Add word to current line
+            if !line.is_empty() {
+                line.push(' ');
+                line_length += 1;
             }
-            lines.push(Line::from(format!("{}}}", indent_str)));
-        }
-        serde_json::Value::Array(arr) => {
-            lines.push(Line::from(format!("{}[", indent_str)));
-            let mut iter = arr.iter().peekable();
-            while let Some(value) = iter.next() {
-                let comma = if iter.peek().is_some() { "," } else { "" };
-                match value {
-                    serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
-                        lines.extend(format_json(value, indent + 2));
-                        if !comma.is_empty() {
-                            lines
-                                .last_mut()
-                                .map(|line| line.spans.push(Span::raw(comma)));
-                        }
-                    }
-                    _ => {
-                        lines.push(Line::from(vec![
-                            Span::raw(format!("{}  ", indent_str)),
-                            format_json_value(value),
-                            Span::raw(comma),
-                        ]));
-                    }
-                }
+            line.push_str(word);
+            line_length += word_length;
+        } else {
+            // Start new line
+            if !line.is_empty() {
+                wrapped.push(line);
             }
-            lines.push(Line::from(format!("{}]", indent_str)));
-        }
-        _ => {
-            lines.push(Line::from(vec![format_json_value(value)]));
+            line = word.to_string();
+            line_length = word_length;
         }
     }
 
-    lines
+    if !line.is_empty() {
+        wrapped.push(line);
+    }
+
+    // Handle empty input or single long words
+    if wrapped.is_empty() {
+        wrapped.push(text.to_string());
+    }
+
+    wrapped
 }
 
-fn format_json_value(value: &serde_json::Value) -> Span<'static> {
-    match value {
-        serde_json::Value::String(s) => {
-            Span::styled(format!("\"{}\"", s), Style::default().fg(Color::Green))
-        }
-        serde_json::Value::Number(n) => {
-            Span::styled(n.to_string(), Style::default().fg(Color::Yellow))
-        }
-        serde_json::Value::Bool(b) => {
-            Span::styled(b.to_string(), Style::default().fg(Color::Magenta))
-        }
-        serde_json::Value::Null => Span::styled("null", Style::default().fg(Color::DarkGray)),
-        _ => Span::raw(value.to_string()),
+// Add this helper function to truncate text
+fn truncate_to_width(text: &str, width: usize) -> String {
+    if text.len() <= width {
+        text.to_string()
+    } else {
+        let mut truncated = text.chars().take(width - 3).collect::<String>();
+        truncated.push_str("...");
+        truncated
     }
 }
