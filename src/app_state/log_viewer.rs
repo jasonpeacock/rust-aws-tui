@@ -13,10 +13,11 @@ pub struct LogViewer {
     pub logs: Arc<Mutex<Vec<OutputLogEvent>>>,
     pub filtered_logs: Vec<OutputLogEvent>,
     pub filter_input: String,
-    pub scroll_position: usize,
+    pub scroll_offset: usize,  // Changed from scroll_position
     pub selected_log: Option<usize>,
     pub expanded: bool,
     cloudwatch_client: Option<CloudWatchLogsClient>,
+    pub scroll_position: usize,
 }
 
 impl LogViewer {
@@ -32,10 +33,11 @@ impl LogViewer {
             logs: Arc::new(Mutex::new(Vec::new())),
             filtered_logs: Vec::new(),
             filter_input: String::new(),
-            scroll_position: 0,
+            scroll_offset: 0,
             selected_log: None,
             expanded: false,
             cloudwatch_client: None,
+            scroll_position: 0,
         }
     }
 
@@ -132,32 +134,56 @@ impl LogViewer {
 
     pub fn scroll_up(&mut self) {
         if self.expanded {
-            return;
-        }
-
-        if let Some(selected) = self.selected_log.as_mut() {
-            *selected = selected.saturating_sub(1);
+            self.scroll_offset = self.scroll_offset.saturating_sub(1);
+        } else if let Some(selected) = self.selected_log {
+            if selected > 0 {
+                self.selected_log = Some(selected - 1);
+                // Adjust scroll offset to keep selection in view
+                if selected <= self.scroll_offset {
+                    self.scroll_offset = self.scroll_offset.saturating_sub(1);
+                }
+            }
         } else if !self.filtered_logs.is_empty() {
             self.selected_log = Some(0);
+            self.scroll_offset = 0;
         }
     }
 
     pub fn scroll_down(&mut self) {
         if self.expanded {
-            return;
-        }
-
-        if let Some(selected) = self.selected_log.as_mut() {
-            *selected = (*selected + 1).min(self.filtered_logs.len().saturating_sub(1));
+            self.scroll_offset = self.scroll_offset.saturating_add(1);
+        } else if let Some(selected) = self.selected_log {
+            if selected < self.filtered_logs.len().saturating_sub(1) {
+                self.selected_log = Some(selected + 1);
+                // Adjust scroll offset to keep selection in view
+                self.scroll_offset = self.scroll_offset.saturating_add(1);
+            }
         } else if !self.filtered_logs.is_empty() {
             self.selected_log = Some(0);
+            self.scroll_offset = 0;
+        }
+    }
+
+    pub fn update_scroll(&mut self, visible_height: usize) {
+        if let Some(selected) = self.selected_log {
+            // Keep selection in the middle of the visible area when possible
+            let middle = visible_height / 2;
+            
+            if selected >= middle {
+                self.scroll_offset = selected.saturating_sub(middle);
+            } else {
+                self.scroll_offset = 0;
+            }
+
+            // Don't scroll past the end
+            let max_scroll = self.filtered_logs.len().saturating_sub(visible_height);
+            self.scroll_offset = self.scroll_offset.min(max_scroll);
         }
     }
 
     pub fn toggle_expand(&mut self) {
-        if self.selected_log.is_some() {
-            self.expanded = !self.expanded;
-        }
+        self.expanded = !self.expanded;
+        self.scroll_offset = 0;
     }
 
     pub fn get_selected_log(&self) -> Option<&OutputLogEvent> {
@@ -165,13 +191,37 @@ impl LogViewer {
     }
 
     pub fn page_up(&mut self, page_size: usize) {
-        self.scroll_position = self.scroll_position.saturating_sub(page_size);
+        self.scroll_offset = self.scroll_offset.saturating_sub(page_size);
     }
 
     pub fn page_down(&mut self, page_size: usize) {
         if !self.filtered_logs.is_empty() {
-            self.scroll_position =
-                (self.scroll_position + page_size).min(self.filtered_logs.len() - 1);
+            self.scroll_offset =
+                (self.scroll_offset + page_size).min(self.filtered_logs.len() - 1);
+        }
+    }
+
+    pub fn get_visible_range(&self, visible_height: usize) -> (usize, usize) {
+        let total_logs = self.filtered_logs.len();
+        let half_height = visible_height / 2;
+
+        if let Some(selected) = self.selected_log {
+            // Calculate the ideal start position that would center the selected item
+            let ideal_start = selected.saturating_sub(half_height);
+            
+            // Adjust start position if we're too close to the end
+            let start = if selected + half_height >= total_logs {
+                total_logs.saturating_sub(visible_height)
+            } else {
+                ideal_start
+            };
+
+            // Calculate end position
+            let end = (start + visible_height).min(total_logs);
+
+            (start, end)
+        } else {
+            (0, visible_height.min(total_logs))
         }
     }
 }

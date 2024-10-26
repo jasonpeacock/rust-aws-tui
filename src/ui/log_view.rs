@@ -6,7 +6,6 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
     Frame,
 };
-use ratatui::widgets::ListState;
 use crate::app_state::{
     date_selection::{DateField, DateSelection},
     log_viewer::LogViewer,
@@ -334,41 +333,83 @@ fn draw_expanded_log(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layou
             .wrap(ratatui::widgets::Wrap { trim: false })
             .scroll((log_viewer.scroll_position as u16, 0));
         f.render_widget(Clear, layout[1]);
-        // f.render_widget(content, layout[1]);
+        f.render_widget(content, layout[1]);  // Uncomment this line
     }
 }
 
-fn draw_log_list(f: &mut Frame, log_viewer: &LogViewer, area: Rect) {
-    let logs_list_block = Block::default()
-        .title("Logs")
-        .borders(Borders::ALL);
-    
-    // Get the inner area within the block
-    let inner_area = logs_list_block.inner(area);
-    
-    // Clear the inner area
-    f.render_widget(Clear, inner_area);
-    
-    let logs: Vec<ListItem> = log_viewer
-        .filtered_logs
-        .iter()
+fn draw_log_list(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layout::Rect) {
+    // Clear the area first
+    let clear_text = " ".repeat(area.width as usize);
+    for y in 0..area.height {
+        let clear_line = Paragraph::new(clear_text.clone())
+            .style(Style::default().bg(Color::Reset));
+        f.render_widget(clear_line, Rect {
+            x: area.x,
+            y: area.y + y,
+            width: area.width,
+            height: 1,
+        });
+    }
+
+    let available_width = area.width.saturating_sub(2) as usize;
+    let timestamp_width = "YYYY-MM-DD HH:MM:SS ".len();
+    let message_width = available_width.saturating_sub(timestamp_width);
+
+    // Calculate visible range
+    let visible_height = area.height.saturating_sub(2) as usize; // Subtract 2 for borders
+    let total_logs = log_viewer.filtered_logs.len();
+    let (start_idx, end_idx) = log_viewer.get_visible_range(visible_height);
+
+    // Get visible logs
+    let visible_logs = log_viewer.filtered_logs.iter()
         .enumerate()
+        .skip(start_idx)
+        .take(end_idx - start_idx);
+
+    let logs: Vec<ListItem> = visible_logs
         .map(|(i, log)| {
             let message = log.message.as_deref().unwrap_or("");
             let timestamp = DateTime::<Local>::from(
                 std::time::UNIX_EPOCH + std::time::Duration::from_millis(log.timestamp.unwrap_or(0) as u64),
             );
 
-            let mut spans = vec![Span::styled(
-                format!("{} ", timestamp.format("%Y-%m-%d %H:%M:%S")),
-                Style::default().fg(Color::Gray),
-            )];
-
-            // Add message with highlighting if filter is active
-            if log_viewer.filter_input.is_empty() {
-                spans.push(Span::raw(message));
+            // Add a marker for the selected log
+            let timestamp_prefix = if Some(i) == log_viewer.selected_log {
+                "→ "
             } else {
-                add_highlighted_message(&mut spans, message, &log_viewer.filter_input);
+                "  "
+            };
+
+            let timestamp_span = Span::styled(
+                format!("{}{} ", timestamp_prefix, timestamp.format("%Y-%m-%d %H:%M:%S")),
+                Style::default().fg(Color::Gray),
+            );
+
+            let wrapped_message = textwrap::wrap(message, message_width);
+            let mut lines = Vec::new();
+
+            // First line with timestamp
+            let mut first_line_spans = vec![timestamp_span];
+            if let Some(first_msg) = wrapped_message.first() {
+                if log_viewer.filter_input.is_empty() {
+                    first_line_spans.push(Span::raw(first_msg.to_string()));
+                } else {
+                    add_highlighted_message_spans(&mut first_line_spans, first_msg, &log_viewer.filter_input);
+                }
+            }
+            lines.push(Line::from(first_line_spans));
+
+            // Remaining lines with proper indentation
+            for msg in wrapped_message.iter().skip(1) {
+                let mut line_spans = vec![
+                    Span::raw(" ".repeat(timestamp_width + 2)), // +2 for the arrow/space prefix
+                ];
+                if log_viewer.filter_input.is_empty() {
+                    line_spans.push(Span::raw(msg.to_string()));
+                } else {
+                    add_highlighted_message_spans(&mut line_spans, msg, &log_viewer.filter_input);
+                }
+                lines.push(Line::from(line_spans));
             }
 
             let style = if Some(i) == log_viewer.selected_log {
@@ -376,33 +417,42 @@ fn draw_log_list(f: &mut Frame, log_viewer: &LogViewer, area: Rect) {
             } else {
                 Style::default()
             };
- 
-            ListItem::new(Line::from(spans)).style(style)
+
+            ListItem::new(lines).style(style)
         })
         .collect();
 
-    let logs_list = List::new(logs)
-        .block(logs_list_block)
-        .start_corner(Corner::TopLeft)
-        .highlight_style(Style::default().fg(Color::Yellow).bg(Color::DarkGray))
-        .highlight_symbol(">> ");
+    // Calculate scroll percentage
+    let scroll_percentage = if total_logs > visible_height {
+        (start_idx as f64 / (total_logs - visible_height) as f64 * 100.0) as u16
+    } else {
+        100
+    };
 
-    // Render the list
-    f.render_stateful_widget(logs_list, area, &mut ListState::default());
+    let logs_list = List::new(logs)
+        .block(Block::default()
+            .title(format!("Logs ({}/{}) {}%", 
+                log_viewer.selected_log.map_or(0, |i| i + 1), 
+                total_logs,
+                scroll_percentage))
+            .borders(Borders::ALL))
+        .start_corner(Corner::TopLeft);
+
+    f.render_widget(logs_list, area);
 }
 
-fn add_highlighted_message<'a>(spans: &mut Vec<Span<'a>>, message: &'a str, filter: &str) {
+fn add_highlighted_message_spans(spans: &mut Vec<Span<'static>>, text: &str, filter: &str) {
     let keywords: Vec<&str> = filter.split_whitespace().collect();
     let mut last_pos = 0;
     let mut positions: Vec<(usize, usize)> = Vec::new();
 
     // Find all keyword positions
     for keyword in keywords {
-        let message_lower = message.to_lowercase();
+        let text_lower = text.to_lowercase();
         let keyword_lower = keyword.to_lowercase();
 
         let mut start = 0;
-        while let Some(pos) = message_lower[start..].find(&keyword_lower) {
+        while let Some(pos) = text_lower[start..].find(&keyword_lower) {
             let abs_pos = start + pos;
             positions.push((abs_pos, abs_pos + keyword.len()));
             start = abs_pos + 1;
@@ -416,17 +466,17 @@ fn add_highlighted_message<'a>(spans: &mut Vec<Span<'a>>, message: &'a str, filt
     // Build spans with highlighting
     for (start, end) in positions {
         if start > last_pos {
-            spans.push(Span::raw(message[last_pos..start].to_string()));
+            spans.push(Span::raw(text[last_pos..start].to_string()));
         }
         spans.push(Span::styled(
-            message[start..end].to_string(),
+            text[start..end].to_string(),
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
         ));
         last_pos = end;
     }
 
-    if last_pos < message.len() {
-        spans.push(Span::raw(message[last_pos..].to_string()));
+    if last_pos < text.len() {
+        spans.push(Span::raw(text[last_pos..].to_string()));
     }
 }
 
@@ -645,3 +695,4 @@ fn format_json_value(value: &serde_json::Value) -> Span<'static> {
         _ => Span::raw(value.to_string()),
     }
 }
+
