@@ -10,3 +10,15 @@ pub enum AppState {
     DateSelection,
     LogViewer,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FocusedPanel {
+    Left,
+    Right,
+}
+
+impl Default for FocusedPanel {
+    fn default() -> Self {
+        Self::Left
+    }
+}

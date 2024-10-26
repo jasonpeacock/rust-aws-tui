@@ -55,10 +55,7 @@ dev-deps:
 	rustup component add rustfmt
 	rustup component add clippy
 	cargo install cargo-edit
-
-# Watch for changes and run the application
-watch:
-	cargo watch -x run
+	cargo install cargo-watch
 
 # Run all quality checks
 quality: fmt lint test

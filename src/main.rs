@@ -3,11 +3,13 @@ mod config;
 mod toml_parser;
 mod ui;
 mod utils;
-
 use anyhow::Result;
 use app_state::{
-    date_selection::DateSelection, function_selection::FunctionSelection, log_viewer::LogViewer,
-    profile_selection::ProfileSelection, AppState,
+    date_selection::{ActiveColumn, DateSelection},
+    function_selection::FunctionSelection,
+    log_viewer::LogViewer,
+    profile_selection::ProfileSelection,
+    AppState, FocusedPanel,
 };
 use config::Config;
 use crossterm::{
@@ -24,6 +26,8 @@ struct App {
     function_selection: Option<FunctionSelection>,
     date_selection: Option<DateSelection>,
     log_viewer: Option<LogViewer>,
+    is_loading: bool,
+    focused_panel: FocusedPanel,
 }
 
 impl App {
@@ -36,6 +40,8 @@ impl App {
             function_selection: None,
             date_selection: None,
             log_viewer: None,
+            is_loading: false,
+            focused_panel: FocusedPanel::Left,
         })
     }
 
@@ -101,20 +107,28 @@ async fn main() -> Result<()> {
     // Main loop
     loop {
         terminal.draw(|f| match app.state {
-            AppState::ProfileSelection => ui::draw_profile_selection(f, &mut app.profile_selection),
+            AppState::ProfileSelection => {
+                ui::profile_list_view::draw_profile_selection(f, &mut app.profile_selection)
+            }
             AppState::FunctionList => {
                 if let Some(ref mut function_selection) = app.function_selection {
-                    ui::draw_function_selection(f, function_selection)
+                    ui::function_list_view::draw_function_selection(f, function_selection)
                 }
             }
             AppState::DateSelection => {
                 if let Some(ref mut date_selection) = app.date_selection {
-                    ui::draw_date_selection(f, date_selection)
+                    ui::date_selection::draw_date_selection_panel(f, date_selection);
                 }
             }
             AppState::LogViewer => {
                 if let Some(ref mut log_viewer) = app.log_viewer {
-                    ui::draw_log_viewer(f, log_viewer)
+                    ui::log_view::draw_log_view(
+                        f,
+                        app.date_selection.as_ref().unwrap(),
+                        Some(log_viewer),
+                        false,
+                        app.focused_panel,
+                    )
                 }
             }
         })?;
@@ -175,8 +189,16 @@ async fn main() -> Result<()> {
                                     app.date_selection = None;
                                 }
                                 KeyCode::Char('c') => date_selection.toggle_custom(),
-                                KeyCode::Tab if date_selection.custom_selection => {
-                                    date_selection.toggle_selection()
+                                KeyCode::Tab => {
+                                    if date_selection.active_column == ActiveColumn::CustomRange {
+                                        date_selection.toggle_selection()
+                                    }
+                                }
+                                KeyCode::Char('1') => {
+                                    date_selection.select_column(ActiveColumn::QuickRanges)
+                                }
+                                KeyCode::Char('2') => {
+                                    date_selection.select_column(ActiveColumn::CustomRange)
                                 }
                                 KeyCode::Left => {
                                     if date_selection.custom_selection {
@@ -192,11 +214,19 @@ async fn main() -> Result<()> {
                                         date_selection.next_quick_range()
                                     }
                                 }
-                                KeyCode::Up if date_selection.custom_selection => {
-                                    date_selection.adjust_current_field(true)
+                                KeyCode::Up => {
+                                    if date_selection.custom_selection {
+                                        date_selection.adjust_current_field(true)
+                                    } else {
+                                        date_selection.previous_quick_range();
+                                    }
                                 }
-                                KeyCode::Down if date_selection.custom_selection => {
-                                    date_selection.adjust_current_field(false)
+                                KeyCode::Down => {
+                                    if date_selection.custom_selection {
+                                        date_selection.adjust_current_field(false)
+                                    } else {
+                                        date_selection.next_quick_range();
+                                    }
                                 }
                                 KeyCode::Enter => {
                                     // Handle final selection
@@ -214,9 +244,37 @@ async fn main() -> Result<()> {
                                     app.state = AppState::DateSelection;
                                     app.log_viewer = None;
                                 }
-                                KeyCode::Up if !log_viewer.expanded => log_viewer.scroll_up(),
-                                KeyCode::Down if !log_viewer.expanded => log_viewer.scroll_down(),
-                                KeyCode::Enter => log_viewer.toggle_expand(),
+                                KeyCode::Up => {
+                                    if log_viewer.expanded {
+                                        log_viewer.scroll_up();
+                                    } else {
+                                        log_viewer.move_selection(
+                                            -1,
+                                            terminal.size().unwrap().height as usize - 8,
+                                        );
+                                    }
+                                }
+                                KeyCode::Down => {
+                                    if log_viewer.expanded {
+                                        // Get the content height from the current log message
+                                        if let Some(log) = log_viewer.get_selected_log() {
+                                            let message = log.message.as_deref().unwrap_or("");
+                                            let content_height = message.lines().count();
+                                            let visible_height =
+                                                terminal.size().unwrap().height as usize - 8;
+                                            log_viewer.scroll_down();
+                                        }
+                                    } else {
+                                        log_viewer.move_selection(
+                                            1,
+                                            terminal.size().unwrap().height as usize - 8,
+                                        );
+                                    }
+                                }
+                                KeyCode::Enter => {
+                                    log_viewer.toggle_expand();
+                                    log_viewer.scroll_position = 0; // Reset scroll position when toggling
+                                }
                                 KeyCode::Char(c) if !log_viewer.expanded => {
                                     log_viewer.filter_input.push(c);
                                     log_viewer.update_filter();
@@ -225,8 +283,22 @@ async fn main() -> Result<()> {
                                     log_viewer.filter_input.pop();
                                     log_viewer.update_filter();
                                 }
-                                KeyCode::PageUp => log_viewer.page_up(10),
-                                KeyCode::PageDown => log_viewer.page_down(10),
+                                KeyCode::PageUp => {
+                                    if log_viewer.expanded {
+                                        log_viewer.scroll_position =
+                                            log_viewer.scroll_position.saturating_sub(10);
+                                    } else {
+                                        log_viewer.page_up();
+                                    }
+                                }
+                                KeyCode::PageDown => {
+                                    if log_viewer.expanded {
+                                        log_viewer.scroll_position =
+                                            log_viewer.scroll_position.saturating_add(10);
+                                    } else {
+                                        log_viewer.page_down();
+                                    }
+                                }
                                 _ => {}
                             }
                         }

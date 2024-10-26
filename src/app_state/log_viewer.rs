@@ -3,7 +3,10 @@ use aws_config::Region;
 use aws_sdk_cloudwatchlogs::types::OutputLogEvent;
 use aws_sdk_cloudwatchlogs::Client as CloudWatchLogsClient;
 use chrono::{DateTime, Local};
+use serde_json;
 use std::sync::{Arc, Mutex};
+
+use crate::utils::ui_utils::format_json;
 
 #[derive(Debug)]
 pub struct LogViewer {
@@ -13,10 +16,12 @@ pub struct LogViewer {
     pub logs: Arc<Mutex<Vec<OutputLogEvent>>>,
     pub filtered_logs: Vec<OutputLogEvent>,
     pub filter_input: String,
-    pub scroll_position: usize,
+    pub scroll_offset: usize, // Changed from scroll_position
     pub selected_log: Option<usize>,
     pub expanded: bool,
     cloudwatch_client: Option<CloudWatchLogsClient>,
+    pub scroll_position: usize,
+    pub start_index: usize, // Add this field to track list scroll position
 }
 
 impl LogViewer {
@@ -32,10 +37,12 @@ impl LogViewer {
             logs: Arc::new(Mutex::new(Vec::new())),
             filtered_logs: Vec::new(),
             filter_input: String::new(),
-            scroll_position: 0,
+            scroll_offset: 0,
             selected_log: None,
             expanded: false,
             cloudwatch_client: None,
+            scroll_position: 0,
+            start_index: 0, // Initialize start_index
         }
     }
 
@@ -132,46 +139,122 @@ impl LogViewer {
 
     pub fn scroll_up(&mut self) {
         if self.expanded {
-            return;
-        }
-
-        if let Some(selected) = self.selected_log.as_mut() {
-            *selected = selected.saturating_sub(1);
-        } else if !self.filtered_logs.is_empty() {
-            self.selected_log = Some(0);
+            self.scroll_position = self.scroll_position.saturating_sub(1);
         }
     }
 
     pub fn scroll_down(&mut self) {
-        if self.expanded {
-            return;
+        if let Some(log) = self.get_selected_log() {
+            if let Some(message) = &log.message {
+                let line_count =
+                    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(message) {
+                        // Count JSON formatted lines
+                        format_json(&json_value, 0).len()
+                    } else {
+                        // Count regular message lines
+                        message.lines().count()
+                    };
+                self.scroll_position = self
+                    .scroll_position
+                    .saturating_add(1)
+                    .min(line_count.saturating_sub(1));
+            }
         }
+    }
 
-        if let Some(selected) = self.selected_log.as_mut() {
-            *selected = (*selected + 1).min(self.filtered_logs.len().saturating_sub(1));
-        } else if !self.filtered_logs.is_empty() {
-            self.selected_log = Some(0);
+    pub fn update_scroll(&mut self, visible_height: usize) {
+        if let Some(selected) = self.selected_log {
+            // Keep selection in the middle of the visible area when possible
+            let middle = visible_height / 2;
+
+            if selected >= middle {
+                self.scroll_offset = selected.saturating_sub(middle);
+            } else {
+                self.scroll_offset = 0;
+            }
+
+            // Don't scroll past the end
+            let max_scroll = self.filtered_logs.len().saturating_sub(visible_height);
+            self.scroll_offset = self.scroll_offset.min(max_scroll);
         }
     }
 
     pub fn toggle_expand(&mut self) {
-        if self.selected_log.is_some() {
-            self.expanded = !self.expanded;
-        }
+        self.expanded = !self.expanded;
+        self.scroll_offset = 0;
     }
 
     pub fn get_selected_log(&self) -> Option<&OutputLogEvent> {
         self.selected_log.and_then(|i| self.filtered_logs.get(i))
     }
 
-    pub fn page_up(&mut self, page_size: usize) {
-        self.scroll_position = self.scroll_position.saturating_sub(page_size);
+    pub fn page_up(&mut self) {
+        if self.expanded {
+            self.scroll_position = self.scroll_position.saturating_sub(10);
+        }
     }
 
-    pub fn page_down(&mut self, page_size: usize) {
-        if !self.filtered_logs.is_empty() {
-            self.scroll_position =
-                (self.scroll_position + page_size).min(self.filtered_logs.len() - 1);
+    pub fn page_down(&mut self) {
+        if let Some(log) = self.get_selected_log() {
+            if let Some(message) = &log.message {
+                let line_count =
+                    if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(message) {
+                        format_json(&json_value, 0).len()
+                    } else {
+                        message.lines().count()
+                    };
+                self.scroll_position =
+                    (self.scroll_position + 10).min(line_count.saturating_sub(1));
+            }
+        }
+    }
+
+    pub fn get_visible_range(&self, visible_height: usize) -> (usize, usize) {
+        let total_logs = self.filtered_logs.len();
+        let half_height = visible_height / 2;
+
+        if let Some(selected) = self.selected_log {
+            // Calculate the ideal start position that would center the selected item
+            let ideal_start = selected.saturating_sub(half_height);
+
+            // Adjust start position if we're too close to the end
+            let start = if selected + half_height >= total_logs {
+                total_logs.saturating_sub(visible_height)
+            } else {
+                ideal_start
+            };
+
+            // Calculate end position
+            let end = (start + visible_height).min(total_logs);
+
+            (start, end)
+        } else {
+            (0, visible_height.min(total_logs))
+        }
+    }
+
+    pub fn move_selection(&mut self, direction: i32, visible_height: usize) {
+        if self.filtered_logs.is_empty() {
+            return;
+        }
+
+        if let Some(current) = self.selected_log {
+            let new_index = if direction > 0 {
+                current.saturating_add(1).min(self.filtered_logs.len() - 1)
+            } else {
+                current.saturating_sub(1)
+            };
+            self.selected_log = Some(new_index);
+
+            // Update scroll position for list view
+            if !self.expanded {
+                // Adjust start_index to keep selection visible
+                if new_index >= self.start_index + visible_height {
+                    self.start_index = new_index.saturating_sub(visible_height - 1);
+                } else if new_index < self.start_index {
+                    self.start_index = new_index;
+                }
+            }
         }
     }
 }

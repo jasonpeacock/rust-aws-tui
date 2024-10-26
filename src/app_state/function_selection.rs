@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use tokio::spawn;
 
 use crate::toml_parser::Profile;
-use crate::utils::{cache_functions, load_cached_functions};
+use crate::utils::file_utils::{cache_functions, load_cached_functions};
 
 #[derive(Debug)]
 pub struct FunctionSelection {
