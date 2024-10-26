@@ -7,36 +7,22 @@ use ratatui::{
     Frame,
 };
 
-use crate::app_state::date_selection::DateField;
+use crate::app_state::date_selection::{ActiveColumn, DateField};
 use chrono::{DateTime, Local};
 
 pub fn draw_date_selection_panel(f: &mut Frame, date_selection: &DateSelection) {
-    let layout_chunks = Layout::default()
+    // Main layout with outer margin
+    let main_area = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3), // Title
-            Constraint::Min(0),    // Rest of content
+            Constraint::Min(0),    // Content
+            Constraint::Length(3), // Helper text
         ])
         .margin(1)
         .split(f.size());
-    let panel = Block::default()
-        .title("Date Selection")
-        .borders(Borders::ALL);
-    f.render_widget(panel.clone(), layout_chunks[1]);
-
-    let inner_area = panel.inner(layout_chunks[1]);
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(12), // Quick ranges
-            Constraint::Length(12), // Custom range
-            Constraint::Min(0),     // Helper text
-        ])
-        .margin(1)
-        .split(inner_area);
 
     // Title bar at the top
-
     let title = Paragraph::new(format!(
         "Log Viewer | Profile: {} | Function: {}",
         date_selection.profile_name, date_selection.function_name
@@ -45,33 +31,23 @@ pub fn draw_date_selection_panel(f: &mut Frame, date_selection: &DateSelection) 
     .block(Block::default().borders(Borders::ALL))
     .alignment(Alignment::Center);
 
-    f.render_widget(title, layout_chunks[0]);
+    f.render_widget(title, main_area[0]);
 
-    // Split into left and right panels
+    // Split content area into left and right panels
     let content_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Length(35), // Left panel (Date Selection)
-            Constraint::Min(1),     // Right panel (Logs)
+            Constraint::Percentage(40), // Left column (Quick Ranges)
+            Constraint::Percentage(60), // Right column (Custom Range)
         ])
-        .split(layout_chunks[1]);
+        .split(main_area[1]);
 
-    // Left panel with its border
-    let left_panel = Block::default()
-        .borders(Borders::ALL)
-        .style(Style::default());
-    f.render_widget(left_panel.clone(), content_chunks[0]);
-
-    // Left panel inner layout
-    let left_inner = left_panel.inner(content_chunks[0]);
-    let left_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(12), // Quick ranges
-            Constraint::Length(12), // Custom range
-            Constraint::Min(0),     // Helper text
-        ])
-        .split(left_inner);
+    // Quick ranges column
+    let quick_ranges_style = if date_selection.active_column == ActiveColumn::QuickRanges {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default()
+    };
 
     let quick_ranges: Vec<ListItem> = date_selection
         .quick_ranges
@@ -79,7 +55,7 @@ pub fn draw_date_selection_panel(f: &mut Frame, date_selection: &DateSelection) 
         .enumerate()
         .map(|(i, range)| {
             let style = if Some(i) == date_selection.selected_quick_range
-                && !date_selection.custom_selection
+                && date_selection.active_column == ActiveColumn::QuickRanges
             {
                 Style::default().fg(Color::Yellow).bg(Color::DarkGray)
             } else {
@@ -90,38 +66,48 @@ pub fn draw_date_selection_panel(f: &mut Frame, date_selection: &DateSelection) 
         .collect();
 
     let quick_ranges_list = List::new(quick_ranges)
-        .block(Block::default().title("Quick Ranges").borders(Borders::ALL))
+        .block(
+            Block::default()
+                .title("1. Quick Ranges")
+                .title_style(quick_ranges_style)
+                .borders(Borders::ALL),
+        )
         .highlight_style(Style::default().fg(Color::Yellow).bg(Color::DarkGray));
-    f.render_widget(quick_ranges_list, left_chunks[0]);
 
-    // Custom range section with focus state
-    let custom_range_style = if date_selection.custom_selection {
-        Style::default().fg(Color::Yellow).bg(Color::DarkGray)
+    f.render_widget(quick_ranges_list, content_chunks[0]);
+
+    // Custom range column
+    let custom_range_style = if date_selection.active_column == ActiveColumn::CustomRange {
+        Style::default().fg(Color::Yellow)
     } else {
         Style::default()
     };
 
     let custom_range_block = Block::default()
-        .title("Custom Range")
+        .title("2. Custom Range")
         .title_style(custom_range_style)
         .borders(Borders::ALL);
-    let custom_range_area = custom_range_block.inner(left_chunks[1]);
-    f.render_widget(custom_range_block, left_chunks[1]);
+    let custom_range_area = custom_range_block.inner(content_chunks[1]);
+    f.render_widget(custom_range_block, content_chunks[1]);
 
-    // From and To fields layout
+    // From and To fields layout with more spacing
     let date_fields = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1), // From label
             Constraint::Length(3), // From input
+            Constraint::Length(2), // Spacing
             Constraint::Length(1), // To label
             Constraint::Length(3), // To input
+            Constraint::Min(0),    // Remaining space
         ])
         .margin(1)
         .split(custom_range_area);
 
     // From label and input with focus state
-    let from_style = if date_selection.is_selecting_from && date_selection.custom_selection {
+    let from_style = if date_selection.is_selecting_from
+        && date_selection.active_column == ActiveColumn::CustomRange
+    {
         Style::default().fg(Color::Yellow)
     } else {
         Style::default()
@@ -131,7 +117,8 @@ pub fn draw_date_selection_panel(f: &mut Frame, date_selection: &DateSelection) 
 
     let from_text = format_date_with_highlight(
         date_selection.from_date,
-        date_selection.is_selecting_from && date_selection.custom_selection,
+        date_selection.is_selecting_from
+            && date_selection.active_column == ActiveColumn::CustomRange,
         &date_selection.current_field,
     );
     let from_input = Paragraph::new(from_text)
@@ -144,17 +131,20 @@ pub fn draw_date_selection_panel(f: &mut Frame, date_selection: &DateSelection) 
     f.render_widget(from_input, date_fields[1]);
 
     // To label and input with focus state
-    let to_style = if !date_selection.is_selecting_from && date_selection.custom_selection {
+    let to_style = if !date_selection.is_selecting_from
+        && date_selection.active_column == ActiveColumn::CustomRange
+    {
         Style::default().fg(Color::Yellow)
     } else {
         Style::default()
     };
     let to_label = Paragraph::new("To").style(to_style);
-    f.render_widget(to_label, date_fields[2]);
+    f.render_widget(to_label, date_fields[3]);
 
     let to_text = format_date_with_highlight(
         date_selection.to_date,
-        !date_selection.is_selecting_from && date_selection.custom_selection,
+        !date_selection.is_selecting_from
+            && date_selection.active_column == ActiveColumn::CustomRange,
         &date_selection.current_field,
     );
     let to_input = Paragraph::new(to_text)
@@ -164,25 +154,28 @@ pub fn draw_date_selection_panel(f: &mut Frame, date_selection: &DateSelection) 
                 .border_style(to_style),
         )
         .alignment(Alignment::Left);
-    f.render_widget(to_input, date_fields[3]);
+    f.render_widget(to_input, date_fields[4]);
 
-    // Update help text based on focus state
-    let help_text = if date_selection.custom_selection {
-        if date_selection.is_selecting_from {
-            "Tab: Switch to To | ←→: Select Field | ↑↓: Adjust Value | C: Quick Ranges | Enter: Confirm | Esc: Back"
-        } else {
-            "Tab: Switch to From | ←→: Select Field | ↑↓: Adjust Value | C: Quick Ranges | Enter: Confirm | Esc: Back"
+    // Helper text at the bottom with border
+    let help_text = match date_selection.active_column {
+        ActiveColumn::QuickRanges => {
+            "1/2: Switch Columns | ↑↓: Select Range | Enter: Confirm | Esc: Back | q: Quit"
         }
-    } else {
-        "↑↓: Select Range | C: Custom | Enter: Confirm | Esc: Back"
+        ActiveColumn::CustomRange => {
+            if date_selection.is_selecting_from {
+                "1/2: Switch Columns | Tab: Switch to To | ←→: Select Field | ↑↓: Adjust Value | Enter: Confirm | Esc: Back | q: Quit"
+            } else {
+                "1/2: Switch Columns | Tab: Switch to From | ←→: Select Field | ↑↓: Adjust Value | Enter: Confirm | Esc: Back | q: Quit"
+            }
+        }
     };
 
-    // Helper text
-    let left_help = Paragraph::new(help_text)
+    let help = Paragraph::new(help_text)
         .style(Style::default().fg(Color::Green))
-        .alignment(Alignment::Left)
-        .wrap(ratatui::widgets::Wrap { trim: true });
-    f.render_widget(left_help, left_chunks[2]);
+        .alignment(Alignment::Center)
+        .block(Block::default().borders(Borders::ALL));
+
+    f.render_widget(help, main_area[2]);
 }
 
 fn format_date_with_highlight(

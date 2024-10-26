@@ -5,8 +5,11 @@ mod ui;
 mod utils;
 use anyhow::Result;
 use app_state::{
-    date_selection::DateSelection, function_selection::FunctionSelection, log_viewer::LogViewer,
-    profile_selection::ProfileSelection, AppState, FocusedPanel,
+    date_selection::{ActiveColumn, DateSelection},
+    function_selection::FunctionSelection,
+    log_viewer::LogViewer,
+    profile_selection::ProfileSelection,
+    AppState, FocusedPanel,
 };
 use config::Config;
 use crossterm::{
@@ -16,7 +19,6 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
-use ui::date_selection;
 
 struct App {
     state: AppState,
@@ -187,8 +189,16 @@ async fn main() -> Result<()> {
                                     app.date_selection = None;
                                 }
                                 KeyCode::Char('c') => date_selection.toggle_custom(),
-                                KeyCode::Tab if date_selection.custom_selection => {
-                                    date_selection.toggle_selection()
+                                KeyCode::Tab => {
+                                    if date_selection.active_column == ActiveColumn::CustomRange {
+                                        date_selection.toggle_selection()
+                                    }
+                                }
+                                KeyCode::Char('1') => {
+                                    date_selection.select_column(ActiveColumn::QuickRanges)
+                                }
+                                KeyCode::Char('2') => {
+                                    date_selection.select_column(ActiveColumn::CustomRange)
                                 }
                                 KeyCode::Left => {
                                     if date_selection.custom_selection {

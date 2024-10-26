@@ -73,6 +73,24 @@ pub struct DateSelection {
     pub quick_ranges: Vec<QuickRange>,
     pub selected_quick_range: Option<usize>,
     pub custom_selection: bool,
+    pub active_column: ActiveColumn,
+}
+
+impl Default for DateSelection {
+    fn default() -> Self {
+        Self {
+            profile_name: String::new(),
+            function_name: String::new(),
+            from_date: Local::now() - Duration::hours(1),
+            to_date: Local::now(),
+            is_selecting_from: true,
+            current_field: DateField::Day,
+            quick_ranges: QuickRange::all(),
+            selected_quick_range: Some(0),
+            custom_selection: false,
+            active_column: ActiveColumn::QuickRanges,
+        }
+    }
 }
 
 impl DateSelection {
@@ -88,13 +106,12 @@ impl DateSelection {
             quick_ranges: QuickRange::all(),
             selected_quick_range: Some(0),
             custom_selection: false,
+            active_column: ActiveColumn::QuickRanges,
         }
     }
 
     pub fn toggle_selection(&mut self) {
-        if self.custom_selection {
-            self.is_selecting_from = !self.is_selecting_from;
-        }
+        self.is_selecting_from = !self.is_selecting_from;
     }
 
     pub fn toggle_custom(&mut self) {
@@ -192,4 +209,50 @@ impl DateSelection {
             self.to_date = self.from_date;
         }
     }
+
+    pub fn switch_column(&mut self, column: ActiveColumn) {
+        self.active_column = column.clone();
+        match column {
+            ActiveColumn::QuickRanges => {
+                self.custom_selection = false;
+            }
+            ActiveColumn::CustomRange => {
+                self.custom_selection = true;
+            }
+        }
+    }
+
+    pub fn select_column(&mut self, column: ActiveColumn) {
+        self.active_column = column.clone();
+        match column {
+            ActiveColumn::QuickRanges => {
+                self.custom_selection = false;
+            }
+            ActiveColumn::CustomRange => {
+                self.custom_selection = true;
+            }
+        }
+    }
+
+    pub fn select_from(&mut self) {
+        self.is_selecting_from = true;
+    }
+
+    pub fn select_to(&mut self) {
+        self.is_selecting_from = false;
+    }
+}
+
+// Add this near the top of the file with your other enums
+#[derive(Debug, PartialEq, Clone)]
+pub enum ActiveColumn {
+    QuickRanges,
+    CustomRange,
+}
+
+// Make sure you have this enum defined
+#[derive(PartialEq)]
+pub enum ActiveField {
+    From,
+    To,
 }

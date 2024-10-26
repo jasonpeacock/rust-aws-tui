@@ -13,7 +13,7 @@ pub struct LogViewer {
     pub logs: Arc<Mutex<Vec<OutputLogEvent>>>,
     pub filtered_logs: Vec<OutputLogEvent>,
     pub filter_input: String,
-    pub scroll_offset: usize,  // Changed from scroll_position
+    pub scroll_offset: usize, // Changed from scroll_position
     pub selected_log: Option<usize>,
     pub expanded: bool,
     cloudwatch_client: Option<CloudWatchLogsClient>,
@@ -168,7 +168,7 @@ impl LogViewer {
         if let Some(selected) = self.selected_log {
             // Keep selection in the middle of the visible area when possible
             let middle = visible_height / 2;
-            
+
             if selected >= middle {
                 self.scroll_offset = selected.saturating_sub(middle);
             } else {
@@ -196,8 +196,7 @@ impl LogViewer {
 
     pub fn page_down(&mut self, page_size: usize) {
         if !self.filtered_logs.is_empty() {
-            self.scroll_offset =
-                (self.scroll_offset + page_size).min(self.filtered_logs.len() - 1);
+            self.scroll_offset = (self.scroll_offset + page_size).min(self.filtered_logs.len() - 1);
         }
     }
 
@@ -208,7 +207,7 @@ impl LogViewer {
         if let Some(selected) = self.selected_log {
             // Calculate the ideal start position that would center the selected item
             let ideal_start = selected.saturating_sub(half_height);
-            
+
             // Adjust start position if we're too close to the end
             let start = if selected + half_height >= total_logs {
                 total_logs.saturating_sub(visible_height)
