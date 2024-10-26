@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame,
 };
-
+use ratatui::widgets::ListState;
 use crate::app_state::{
     date_selection::{DateField, DateSelection},
     log_viewer::LogViewer,
@@ -320,6 +320,10 @@ fn draw_expanded_log(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layou
 }
 
 fn draw_log_list(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layout::Rect) {
+    let logs_list_block = Block::default()
+        .title("Logs")
+        .borders(Borders::ALL);
+
     let logs: Vec<ListItem> = log_viewer
         .filtered_logs
         .iter()
@@ -353,8 +357,11 @@ fn draw_log_list(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layout::R
         .collect();
 
     let logs_list = List::new(logs)
-        .block(Block::default().title("Logs").borders(Borders::ALL))
-        .start_corner(Corner::TopLeft);
+    .block(logs_list_block)
+    .start_corner(Corner::TopLeft)
+        .highlight_style(Style::default().fg(Color::Yellow).bg(Color::DarkGray))
+        .highlight_symbol(">> "); // Optional: adds an indicator for the selected item
+
     f.render_widget(logs_list, area);
 }
 
