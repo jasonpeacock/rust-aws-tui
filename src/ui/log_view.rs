@@ -1,9 +1,9 @@
 use chrono::{DateTime, Local};
 use ratatui::{
-    layout::{Alignment, Constraint, Corner, Direction, Layout},
+    layout::{Alignment, Constraint, Corner, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
     Frame,
 };
 use ratatui::widgets::ListState;
@@ -243,7 +243,6 @@ fn draw_logs_panel(
     let inner_area = right_panel.inner(area);
 
     if is_loading {
-        // Show loading indicator
         let loading_text = Paragraph::new("Loading logs...")
             .style(Style::default().fg(Color::Yellow))
             .alignment(Alignment::Center);
@@ -251,21 +250,25 @@ fn draw_logs_panel(
         return;
     }
 
-    let log_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3), // Filter
-            Constraint::Min(1),    // Logs
-            Constraint::Length(3), // Helper text
-        ])
-        .margin(1)
-        .split(inner_area);
-
     if let Some(log_viewer) = log_viewer {
+        let log_layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3), // Filter
+                Constraint::Min(1),    // Logs
+                Constraint::Length(3), // Helper text
+            ])
+            .margin(1)
+            .split(inner_area);
+
         // Filter input
         let filter_input = Paragraph::new(log_viewer.filter_input.as_str())
             .block(Block::default().title("Filter").borders(Borders::ALL));
         f.render_widget(filter_input, log_layout[0]);
+
+        // Clear the area before rendering new content
+        let clear_widget = ratatui::widgets::Clear;
+        f.render_widget(clear_widget, log_layout[1]);
 
         // Logs content
         if log_viewer.expanded {
@@ -286,7 +289,6 @@ fn draw_logs_panel(
             .block(Block::default().borders(Borders::ALL));
         f.render_widget(controls_widget, log_layout[2]);
     } else {
-        // Show placeholder when no logs are loaded
         let placeholder = Paragraph::new("Select date range and press Enter to load logs")
             .style(Style::default().fg(Color::DarkGray))
             .alignment(Alignment::Center);
@@ -295,13 +297,14 @@ fn draw_logs_panel(
 }
 
 fn draw_expanded_log(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layout::Rect) {
+    // Clear the entire area with spaces
+
     if let Some(log) = log_viewer.get_selected_log() {
         let message = log.message.as_deref().unwrap_or("");
         let timestamp = DateTime::<Local>::from(
             std::time::UNIX_EPOCH + std::time::Duration::from_millis(log.timestamp.unwrap_or(0) as u64),
         );
 
-        // Create a more structured layout for the expanded log
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -310,7 +313,8 @@ fn draw_expanded_log(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layou
             ])
             .split(area);
 
-        // Header with timestamp and metadata
+
+        // Header
         let header = Paragraph::new(vec![
             Line::from(vec![
                 Span::styled("Timestamp: ", Style::default().add_modifier(Modifier::BOLD)),
@@ -323,23 +327,28 @@ fn draw_expanded_log(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layou
         .block(Block::default().borders(Borders::ALL).title("Log Details"));
         f.render_widget(header, layout[0]);
 
-        // Format the message content
+        // Content
         let formatted_content = format_log_message(message);
-        
         let content = Paragraph::new(formatted_content)
             .block(Block::default().borders(Borders::ALL).title("Message"))
             .wrap(ratatui::widgets::Wrap { trim: false })
             .scroll((log_viewer.scroll_position as u16, 0));
-
-        f.render_widget(content, layout[1]);
+        f.render_widget(Clear, layout[1]);
+        // f.render_widget(content, layout[1]);
     }
 }
 
-fn draw_log_list(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layout::Rect) {
+fn draw_log_list(f: &mut Frame, log_viewer: &LogViewer, area: Rect) {
     let logs_list_block = Block::default()
         .title("Logs")
         .borders(Borders::ALL);
-
+    
+    // Get the inner area within the block
+    let inner_area = logs_list_block.inner(area);
+    
+    // Clear the inner area
+    f.render_widget(Clear, inner_area);
+    
     let logs: Vec<ListItem> = log_viewer
         .filtered_logs
         .iter()
@@ -373,12 +382,13 @@ fn draw_log_list(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layout::R
         .collect();
 
     let logs_list = List::new(logs)
-    .block(logs_list_block)
-    .start_corner(Corner::TopLeft)
+        .block(logs_list_block)
+        .start_corner(Corner::TopLeft)
         .highlight_style(Style::default().fg(Color::Yellow).bg(Color::DarkGray))
-        .highlight_symbol(">> ");// Optional: adds an indicator for the selected item
+        .highlight_symbol(">> ");
 
-    f.render_widget(logs_list, area);
+    // Render the list
+    f.render_stateful_widget(logs_list, area, &mut ListState::default());
 }
 
 fn add_highlighted_message<'a>(spans: &mut Vec<Span<'a>>, message: &'a str, filter: &str) {
