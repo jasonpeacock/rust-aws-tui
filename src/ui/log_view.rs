@@ -175,9 +175,11 @@ pub fn draw_date_selection(f: &mut Frame, date_selection: &DateSelection) {
         "←→: Select Range | C: Custom | Enter: Confirm | Esc: Back"
     };
 
+    // Helper text
     let left_help = Paragraph::new(help_text)
         .style(Style::default().fg(Color::Green))
-        .alignment(Alignment::Left);
+        .alignment(Alignment::Left)
+        .wrap(ratatui::widgets::Wrap { trim: true });
     f.render_widget(left_help, left_chunks[2]);
 
     // Right panel with its border
