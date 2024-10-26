@@ -301,21 +301,37 @@ fn draw_expanded_log(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layou
             std::time::UNIX_EPOCH + std::time::Duration::from_millis(log.timestamp.unwrap_or(0) as u64),
         );
 
-        let header = format!("Timestamp: {}", timestamp.format("%Y-%m-%d %H:%M:%S%.3f"));
-        let content = format!("\n{}", message);
+        // Create a more structured layout for the expanded log
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),  // Header
+                Constraint::Min(1),     // Content
+            ])
+            .split(area);
 
-        let log_detail = Paragraph::new(vec![
-            Line::from(vec![Span::styled(
-                "Log Details",
-                Style::default().add_modifier(Modifier::BOLD),
-            )]),
-            Line::from(vec![Span::styled(header, Style::default().fg(Color::Gray))]),
-            Line::from(vec![Span::raw(content)]),
+        // Header with timestamp and metadata
+        let header = Paragraph::new(vec![
+            Line::from(vec![
+                Span::styled("Timestamp: ", Style::default().add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    timestamp.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+                    Style::default().fg(Color::Cyan)
+                ),
+            ]),
         ])
-        .block(Block::default().title("Expanded View").borders(Borders::ALL))
-        .wrap(ratatui::widgets::Wrap { trim: false });
+        .block(Block::default().borders(Borders::ALL).title("Log Details"));
+        f.render_widget(header, layout[0]);
 
-        f.render_widget(log_detail, area);
+        // Format the message content
+        let formatted_content = format_log_message(message);
+        
+        let content = Paragraph::new(formatted_content)
+            .block(Block::default().borders(Borders::ALL).title("Message"))
+            .wrap(ratatui::widgets::Wrap { trim: false })
+            .scroll((log_viewer.scroll_position as u16, 0));
+
+        f.render_widget(content, layout[1]);
     }
 }
 
@@ -351,7 +367,7 @@ fn draw_log_list(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layout::R
             } else {
                 Style::default()
             };
-
+ 
             ListItem::new(Line::from(spans)).style(style)
         })
         .collect();
@@ -360,7 +376,7 @@ fn draw_log_list(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layout::R
     .block(logs_list_block)
     .start_corner(Corner::TopLeft)
         .highlight_style(Style::default().fg(Color::Yellow).bg(Color::DarkGray))
-        .highlight_symbol(">> "); // Optional: adds an indicator for the selected item
+        .highlight_symbol(">> ");// Optional: adds an indicator for the selected item
 
     f.render_widget(logs_list, area);
 }
@@ -487,4 +503,135 @@ fn format_date_with_highlight(
         .collect();
 
     Text::from(Line::from(owned_spans))
+}
+
+// Add this new function to format log messages
+fn format_log_message(message: &str) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    
+    // Try to parse as JSON first
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(message) {
+        // Format JSON with pretty print
+        let formatted = format_json(&json, 0);
+        lines.extend(formatted);
+    } else {
+        // Handle non-JSON log messages
+        for line in message.lines() {
+            let line_string = line.to_string(); // Convert to owned String
+            if line.contains("ERROR") || line.contains("error") {
+                lines.push(Line::from(Span::styled(
+                    line_string,
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+                )));
+            } else if line.contains("WARN") || line.contains("warn") {
+                lines.push(Line::from(Span::styled(
+                    line_string,
+                    Style::default().fg(Color::Yellow)
+                )));
+            } else if line.contains("DEBUG") || line.contains("debug") {
+                lines.push(Line::from(Span::styled(
+                    line_string,
+                    Style::default().fg(Color::Blue)
+                )));
+            } else if line.contains("INFO") || line.contains("info") {
+                lines.push(Line::from(Span::styled(
+                    line_string,
+                    Style::default().fg(Color::Green)
+                )));
+            } else {
+                lines.push(Line::from(line_string));
+            }
+        }
+    }
+
+    lines
+}
+
+// Add this function to format JSON content
+fn format_json(value: &serde_json::Value, indent: usize) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    let indent_str = " ".repeat(indent);
+
+    match value {
+        serde_json::Value::Object(map) => {
+            lines.push(Line::from(format!("{}{{", indent_str)));
+            let mut iter = map.iter().peekable();
+            while let Some((key, value)) = iter.next() {
+                let comma = if iter.peek().is_some() { "," } else { "" };
+                match value {
+                    serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                        lines.push(Line::from(vec![
+                            Span::raw(format!("{}  ", indent_str)),
+                            Span::styled(key.clone(), Style::default().fg(Color::Cyan)),
+                            Span::raw(": "),
+                        ]));
+                        lines.extend(format_json(value, indent + 2));
+                        if !comma.is_empty() {
+                            lines.last_mut().map(|line| line.spans.push(Span::raw(comma)));
+                        }
+                    }
+                    _ => {
+                        lines.push(Line::from(vec![
+                            Span::raw(format!("{}  ", indent_str)),
+                            Span::styled(key.clone(), Style::default().fg(Color::Cyan)),
+                            Span::raw(": "),
+                            format_json_value(value),
+                            Span::raw(comma),
+                        ]));
+                    }
+                }
+            }
+            lines.push(Line::from(format!("{}}}", indent_str)));
+        }
+        serde_json::Value::Array(arr) => {
+            lines.push(Line::from(format!("{}[", indent_str)));
+            let mut iter = arr.iter().peekable();
+            while let Some(value) = iter.next() {
+                let comma = if iter.peek().is_some() { "," } else { "" };
+                match value {
+                    serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                        lines.extend(format_json(value, indent + 2));
+                        if !comma.is_empty() {
+                            lines.last_mut().map(|line| line.spans.push(Span::raw(comma)));
+                        }
+                    }
+                    _ => {
+                        lines.push(Line::from(vec![
+                            Span::raw(format!("{}  ", indent_str)),
+                            format_json_value(value),
+                            Span::raw(comma),
+                        ]));
+                    }
+                }
+            }
+            lines.push(Line::from(format!("{}]", indent_str)));
+        }
+        _ => {
+            lines.push(Line::from(vec![format_json_value(value)]));
+        }
+    }
+
+    lines
+}
+
+fn format_json_value(value: &serde_json::Value) -> Span<'static> {
+    match value {
+        serde_json::Value::String(s) => Span::styled(
+            format!("\"{}\"", s),
+            Style::default().fg(Color::Green)
+        ),
+        serde_json::Value::Number(n) => Span::styled(
+            n.to_string(),
+            Style::default().fg(Color::Yellow)
+        ),
+        serde_json::Value::Bool(b) => Span::styled(
+            b.to_string(),
+            Style::default().fg(Color::Magenta)
+        ),
+        serde_json::Value::Null => Span::styled(
+            "null",
+            Style::default().fg(Color::DarkGray)
+        ),
+        _ => Span::raw(value.to_string()),
+    }
 }
