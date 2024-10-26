@@ -57,9 +57,5 @@ dev-deps:
 	cargo install cargo-edit
 	cargo install cargo-watch
 
-# Watch for changes and run the application
-watch:
-	cargo watch -x run
-
 # Run all quality checks
 quality: fmt lint test
