@@ -55,6 +55,7 @@ dev-deps:
 	rustup component add rustfmt
 	rustup component add clippy
 	cargo install cargo-edit
+	cargo install cargo-watch
 
 # Watch for changes and run the application
 watch:
