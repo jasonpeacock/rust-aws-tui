@@ -86,7 +86,6 @@ pub fn draw_date_selection(f: &mut Frame, date_selection: &DateSelection) {
         .block(
             Block::default()
                 .title("Quick Ranges")
-                .title_style(quick_ranges_style)
                 .borders(Borders::ALL),
         )
         .highlight_style(Style::default().fg(Color::Yellow).bg(Color::DarkGray));
