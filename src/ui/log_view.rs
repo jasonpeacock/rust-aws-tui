@@ -138,6 +138,7 @@ fn draw_logs_panel(
 }
 
 fn draw_expanded_log(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layout::Rect) {
+    f.render_widget(Clear, area);
     if let Some(log) = log_viewer.get_selected_log() {
         let message = log.message.as_deref().unwrap_or("");
         let timestamp = DateTime::<Local>::from(
