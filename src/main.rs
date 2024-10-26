@@ -101,20 +101,20 @@ async fn main() -> Result<()> {
     // Main loop
     loop {
         terminal.draw(|f| match app.state {
-            AppState::ProfileSelection => ui::draw_profile_selection(f, &mut app.profile_selection),
+            AppState::ProfileSelection => ui::profile_list_view::draw_profile_selection(f, &mut app.profile_selection),
             AppState::FunctionList => {
                 if let Some(ref mut function_selection) = app.function_selection {
-                    ui::draw_function_selection(f, function_selection)
+                    ui::function_list_view::draw_function_selection(f, function_selection)
                 }
             }
             AppState::DateSelection => {
                 if let Some(ref mut date_selection) = app.date_selection {
-                    ui::draw_date_selection(f, date_selection)
+                    ui::log_view::draw_date_selection(f, date_selection)
                 }
             }
             AppState::LogViewer => {
                 if let Some(ref mut log_viewer) = app.log_viewer {
-                    ui::draw_log_viewer(f, log_viewer)
+                    ui::log_view::draw_log_viewer(f, log_viewer)
                 }
             }
         })?;
