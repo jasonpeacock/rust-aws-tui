@@ -44,12 +44,24 @@ cargo install --path .
 - `Esc` to go back/cancel
 - `q` to quit the application
 
-### Function Selection
+### Step 1: Profile Selection
+
+1. Select an AWS profile from the list
+
+![AWS Profile Selection](./docs/assets/step1_select_profile.png)
+
+- Use `↑`/`↓` or `j`/`k` to navigate profiles
+- Press `Enter` to select
+- Press `q` to quit
+
+### Step 2: Function Selection
 
 1. Select an AWS profile from the list
 2. Choose a region
 3. Browse or search through the Lambda functions list
 4. Press `Enter` to view logs for the selected function
+
+![Function Selection](./docs/assets/step_2_select_function.png)
 
 ### Time Range Selection
 
@@ -60,12 +72,20 @@ cargo install --path .
   - Last 24 hours
 - Or select "Custom Range" to specify exact dates and times
 
+![Time Range Selection](./docs/assets/step_3_select_date_range.png)
+
 ### Log Viewing
 
 - Use `↑`/`↓` to scroll through logs
 - Type to search/filter logs in real-time
 - `Ctrl+C` to copy selected log entry
 - `f` to toggle full-screen mode
+
+![Log Viewer](./docs/assets/step_4_view_logs.png)
+
+Toggle detail view with `Enter`
+
+![Log Detail View](./docs/assets/step_5_view_detail_logs.png)
 
 ## Configuration
 
