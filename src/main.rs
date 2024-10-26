@@ -192,11 +192,19 @@ async fn main() -> Result<()> {
                                         date_selection.next_quick_range()
                                     }
                                 }
-                                KeyCode::Up if date_selection.custom_selection => {
-                                    date_selection.adjust_current_field(true)
+                                KeyCode::Up => {
+                                    if date_selection.custom_selection {
+                                        date_selection.adjust_current_field(true)
+                                    } else {
+                                        date_selection.previous_quick_range();
+                                    }
                                 }
-                                KeyCode::Down if date_selection.custom_selection => {
-                                    date_selection.adjust_current_field(false)
+                                KeyCode::Down => {
+                                    if date_selection.custom_selection {
+                                        date_selection.adjust_current_field(false)
+                                    } else {
+                                        date_selection.next_quick_range();
+                                    }
                                 }
                                 KeyCode::Enter => {
                                     // Handle final selection
@@ -213,8 +221,14 @@ async fn main() -> Result<()> {
                                 KeyCode::Esc => {
                                     app.state = AppState::DateSelection;
                                     app.log_viewer = None;
-                                }
-                                KeyCode::Up if !log_viewer.expanded => log_viewer.scroll_up(),
+                                },
+                                KeyCode::Up => {
+                                    if app.state == AppState::LogViewer {
+                                        log_viewer.scroll_up();
+                                    } else {
+                                        log_viewer.filter_input.pop();
+                                    }
+                                },
                                 KeyCode::Down if !log_viewer.expanded => log_viewer.scroll_down(),
                                 KeyCode::Enter => log_viewer.toggle_expand(),
                                 KeyCode::Char(c) if !log_viewer.expanded => {

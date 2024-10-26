@@ -59,13 +59,6 @@ pub fn draw_date_selection(f: &mut Frame, date_selection: &DateSelection) {
         ])
         .split(left_inner);
 
-    // Quick ranges section with focus state
-    let quick_ranges_style = if !date_selection.custom_selection {
-        Style::default().fg(Color::Yellow).bg(Color::DarkGray)
-    } else {
-        Style::default()
-    };
-
     let quick_ranges: Vec<ListItem> = date_selection
         .quick_ranges
         .iter()
@@ -171,7 +164,7 @@ pub fn draw_date_selection(f: &mut Frame, date_selection: &DateSelection) {
             "Tab: Switch to From | ←→: Select Field | ↑↓: Adjust Value | C: Quick Ranges | Enter: Confirm | Esc: Back"
         }
     } else {
-        "←→: Select Range | C: Custom | Enter: Confirm | Esc: Back"
+        "↑↓: Select Range | C: Custom | Enter: Confirm | Esc: Back"
     };
 
     // Helper text
