@@ -7,7 +7,7 @@ mod utils;
 use anyhow::Result;
 use app_state::{
     date_selection::DateSelection, function_selection::FunctionSelection, log_viewer::LogViewer,
-    profile_selection::ProfileSelection, AppState,
+    profile_selection::ProfileSelection, AppState, FocusedPanel,
 };
 use config::Config;
 use crossterm::{
@@ -24,6 +24,8 @@ struct App {
     function_selection: Option<FunctionSelection>,
     date_selection: Option<DateSelection>,
     log_viewer: Option<LogViewer>,
+    is_loading: bool,
+    focused_panel: FocusedPanel,
 }
 
 impl App {
@@ -36,6 +38,8 @@ impl App {
             function_selection: None,
             date_selection: None,
             log_viewer: None,
+            is_loading: false,
+            focused_panel: FocusedPanel::Left,
         })
     }
 
@@ -109,12 +113,24 @@ async fn main() -> Result<()> {
             }
             AppState::DateSelection => {
                 if let Some(ref mut date_selection) = app.date_selection {
-                    ui::log_view::draw_date_selection(f, date_selection)
+                    ui::log_view::draw_log_view(
+                        f,
+                        date_selection,
+                        app.log_viewer.as_ref(),  // Convert to reference
+                        app.is_loading,
+                        app.focused_panel,
+                    )
                 }
             }
             AppState::LogViewer => {
                 if let Some(ref mut log_viewer) = app.log_viewer {
-                    ui::log_view::draw_log_viewer(f, log_viewer)
+                    ui::log_view::draw_log_view(
+                        f,
+                        app.date_selection.as_ref().unwrap(),
+                        Some(log_viewer),
+                        false,
+                        app.focused_panel,
+                    )
                 }
             }
         })?;

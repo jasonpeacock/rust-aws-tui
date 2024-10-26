@@ -10,9 +10,16 @@ use ratatui::{
 use crate::app_state::{
     date_selection::{DateField, DateSelection},
     log_viewer::LogViewer,
+    FocusedPanel,
 };
 
-pub fn draw_date_selection(f: &mut Frame, date_selection: &DateSelection) {
+pub fn draw_log_view(
+    f: &mut Frame,
+    date_selection: &DateSelection,
+    log_viewer: Option<&LogViewer>,
+    is_loading: bool,
+    focused_panel: FocusedPanel,
+) {
     // Title bar at the top
     let layout_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -22,6 +29,48 @@ pub fn draw_date_selection(f: &mut Frame, date_selection: &DateSelection) {
         ])
         .margin(1)
         .split(f.size());
+
+    let title = Paragraph::new(format!(
+        "Log Viewer | Profile: {} | Function: {}",
+        date_selection.profile_name, date_selection.function_name
+    ))
+    .style(Style::default().fg(Color::Cyan))
+    .block(Block::default().borders(Borders::ALL))
+    .alignment(Alignment::Center);
+
+    f.render_widget(title, layout_chunks[0]);
+
+    // Split into left and right panels
+    let content_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(35), // Left panel (Date Selection)
+            Constraint::Min(1),     // Right panel (Logs)
+        ])
+        .split(layout_chunks[1]);
+
+    // Left panel (Date Selection)
+    draw_date_selection_panel(f, date_selection, content_chunks[0], focused_panel);
+
+    // Right panel (Logs)
+    draw_logs_panel(f, log_viewer, is_loading, content_chunks[1], focused_panel);
+}
+
+fn draw_date_selection_panel(
+    f: &mut Frame,
+    date_selection: &DateSelection,
+    area: ratatui::layout::Rect,
+    focused_panel: FocusedPanel,
+) {
+    // Title bar at the top
+    let layout_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // Title
+            Constraint::Min(0),    // Rest of content
+        ])
+        .margin(1)
+        .split(area);
 
     let title = Paragraph::new(format!(
         "Log Viewer | Profile: {} | Function: {}",
@@ -173,16 +222,36 @@ pub fn draw_date_selection(f: &mut Frame, date_selection: &DateSelection) {
         .alignment(Alignment::Left)
         .wrap(ratatui::widgets::Wrap { trim: true });
     f.render_widget(left_help, left_chunks[2]);
+}
 
-    // Right panel with its border
+fn draw_logs_panel(
+    f: &mut Frame,
+    log_viewer: Option<&LogViewer>,
+    is_loading: bool,
+    area: ratatui::layout::Rect,
+    focused_panel: FocusedPanel,
+) {
     let right_panel = Block::default()
+        .title(format!("2. Logs{}", 
+            if focused_panel == FocusedPanel::Right { " [Active]" } else { "" }))
         .borders(Borders::ALL)
-        .style(Style::default());
-    f.render_widget(right_panel.clone(), content_chunks[1]);
+        .border_style(Style::default().fg(
+            if focused_panel == FocusedPanel::Right { Color::Yellow } else { Color::White }
+        ));
+    f.render_widget(right_panel.clone(), area);
 
-    // Right panel inner layout
-    let right_inner = right_panel.inner(content_chunks[1]);
-    let right_chunks = Layout::default()
+    let inner_area = right_panel.inner(area);
+
+    if is_loading {
+        // Show loading indicator
+        let loading_text = Paragraph::new("Loading logs...")
+            .style(Style::default().fg(Color::Yellow))
+            .alignment(Alignment::Center);
+        f.render_widget(loading_text, inner_area);
+        return;
+    }
+
+    let log_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3), // Filter
@@ -190,172 +259,142 @@ pub fn draw_date_selection(f: &mut Frame, date_selection: &DateSelection) {
             Constraint::Length(3), // Helper text
         ])
         .margin(1)
-        .split(right_inner);
+        .split(inner_area);
 
-    // Filter
-    let filter = Block::default().title("Filter").borders(Borders::ALL);
-    f.render_widget(filter, right_chunks[0]);
+    if let Some(log_viewer) = log_viewer {
+        // Filter input
+        let filter_input = Paragraph::new(log_viewer.filter_input.as_str())
+            .block(Block::default().title("Filter").borders(Borders::ALL));
+        f.render_widget(filter_input, log_layout[0]);
 
-    // Logs
-    let logs = Block::default().title("Logs").borders(Borders::ALL);
-    f.render_widget(logs, right_chunks[1]);
+        // Logs content
+        if log_viewer.expanded {
+            draw_expanded_log(f, log_viewer, log_layout[1]);
+        } else {
+            draw_log_list(f, log_viewer, log_layout[1]);
+        }
 
-    // Right panel helper text
-    let right_help = Paragraph::new("Helper Text")
-        .style(Style::default().fg(Color::Green))
-        .alignment(Alignment::Left);
-    f.render_widget(right_help, right_chunks[2]);
+        // Controls
+        let controls = if log_viewer.expanded {
+            "Enter: Collapse | Esc: Back | q: Quit"
+        } else {
+            "↑↓: Navigate | Enter: Expand | Filter: Type to filter | Esc: Back | q: Quit"
+        };
+
+        let controls_widget = Paragraph::new(controls)
+            .style(Style::default().fg(Color::Green))
+            .block(Block::default().borders(Borders::ALL));
+        f.render_widget(controls_widget, log_layout[2]);
+    } else {
+        // Show placeholder when no logs are loaded
+        let placeholder = Paragraph::new("Select date range and press Enter to load logs")
+            .style(Style::default().fg(Color::DarkGray))
+            .alignment(Alignment::Center);
+        f.render_widget(placeholder, inner_area);
+    }
 }
-pub fn draw_log_viewer(f: &mut Frame, state: &LogViewer) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3), // Title
-            Constraint::Length(3), // Filter
-            Constraint::Min(0),    // Logs
-            Constraint::Length(3), // Controls
+
+fn draw_expanded_log(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layout::Rect) {
+    if let Some(log) = log_viewer.get_selected_log() {
+        let message = log.message.as_deref().unwrap_or("");
+        let timestamp = DateTime::<Local>::from(
+            std::time::UNIX_EPOCH + std::time::Duration::from_millis(log.timestamp.unwrap_or(0) as u64),
+        );
+
+        let header = format!("Timestamp: {}", timestamp.format("%Y-%m-%d %H:%M:%S%.3f"));
+        let content = format!("\n{}", message);
+
+        let log_detail = Paragraph::new(vec![
+            Line::from(vec![Span::styled(
+                "Log Details",
+                Style::default().add_modifier(Modifier::BOLD),
+            )]),
+            Line::from(vec![Span::styled(header, Style::default().fg(Color::Gray))]),
+            Line::from(vec![Span::raw(content)]),
         ])
-        .margin(1)
-        .split(f.size());
+        .block(Block::default().title("Expanded View").borders(Borders::ALL))
+        .wrap(ratatui::widgets::Wrap { trim: false });
 
-    // Title
-    let title = format!(
-        "Logs for {} ({} to {})",
-        state.function_name,
-        state.from_date.format("%Y-%m-%d %H:%M"),
-        state.to_date.format("%Y-%m-%d %H:%M")
-    );
-    let title_widget = Paragraph::new(title)
-        .style(Style::default().fg(Color::Cyan))
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(title_widget, chunks[0]);
+        f.render_widget(log_detail, area);
+    }
+}
 
-    // Filter input
-    let filter_input = Paragraph::new(state.filter_input.as_str())
-        .block(Block::default().title("Filter").borders(Borders::ALL));
-    f.render_widget(filter_input, chunks[1]);
-
-    // Logs area
-    if state.expanded {
-        if let Some(log) = state.get_selected_log() {
+fn draw_log_list(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layout::Rect) {
+    let logs: Vec<ListItem> = log_viewer
+        .filtered_logs
+        .iter()
+        .enumerate()
+        .map(|(i, log)| {
             let message = log.message.as_deref().unwrap_or("");
             let timestamp = DateTime::<Local>::from(
-                std::time::UNIX_EPOCH
-                    + std::time::Duration::from_millis(log.timestamp.unwrap_or(0) as u64),
+                std::time::UNIX_EPOCH + std::time::Duration::from_millis(log.timestamp.unwrap_or(0) as u64),
             );
 
-            let header = format!("Timestamp: {}", timestamp.format("%Y-%m-%d %H:%M:%S%.3f"));
-            let content = format!("\n{}", message);
+            let mut spans = vec![Span::styled(
+                format!("{} ", timestamp.format("%Y-%m-%d %H:%M:%S")),
+                Style::default().fg(Color::Gray),
+            )];
 
-            let log_detail = Paragraph::new(vec![
-                Line::from(vec![Span::styled(
-                    "Log Details",
-                    Style::default().add_modifier(Modifier::BOLD),
-                )]),
-                Line::from(vec![Span::styled(header, Style::default().fg(Color::Gray))]),
-                Line::from(vec![Span::raw(content)]),
-            ])
-            .block(
-                Block::default()
-                    .title("Expanded View")
-                    .borders(Borders::ALL),
-            )
-            .wrap(ratatui::widgets::Wrap { trim: false });
+            // Add message with highlighting if filter is active
+            if log_viewer.filter_input.is_empty() {
+                spans.push(Span::raw(message));
+            } else {
+                add_highlighted_message(&mut spans, message, &log_viewer.filter_input);
+            }
 
-            f.render_widget(log_detail, chunks[2]);
+            let style = if Some(i) == log_viewer.selected_log {
+                Style::default().fg(Color::Yellow).bg(Color::DarkGray)
+            } else {
+                Style::default()
+            };
+
+            ListItem::new(Line::from(spans)).style(style)
+        })
+        .collect();
+
+    let logs_list = List::new(logs)
+        .block(Block::default().title("Logs").borders(Borders::ALL))
+        .start_corner(Corner::TopLeft);
+    f.render_widget(logs_list, area);
+}
+
+fn add_highlighted_message<'a>(spans: &mut Vec<Span<'a>>, message: &'a str, filter: &str) {
+    let keywords: Vec<&str> = filter.split_whitespace().collect();
+    let mut last_pos = 0;
+    let mut positions: Vec<(usize, usize)> = Vec::new();
+
+    // Find all keyword positions
+    for keyword in keywords {
+        let message_lower = message.to_lowercase();
+        let keyword_lower = keyword.to_lowercase();
+
+        let mut start = 0;
+        while let Some(pos) = message_lower[start..].find(&keyword_lower) {
+            let abs_pos = start + pos;
+            positions.push((abs_pos, abs_pos + keyword.len()));
+            start = abs_pos + 1;
         }
-    } else {
-        let logs: Vec<ListItem> = state
-            .filtered_logs
-            .iter()
-            .enumerate()
-            .map(|(i, log)| {
-                let message = log.message.as_deref().unwrap_or("");
-                let timestamp = DateTime::<Local>::from(
-                    std::time::UNIX_EPOCH
-                        + std::time::Duration::from_millis(log.timestamp.unwrap_or(0) as u64),
-                );
-
-                let mut spans = vec![Span::styled(
-                    format!("{} ", timestamp.format("%Y-%m-%d %H:%M:%S")),
-                    Style::default().fg(Color::Gray),
-                )];
-
-                // Truncate message if it's too long
-                let truncated_message = if message.len() > 100 {
-                    format!("{}...", &message[..100])
-                } else {
-                    message.to_string()
-                };
-
-                if state.filter_input.is_empty() {
-                    spans.push(Span::raw(truncated_message));
-                } else {
-                    // Highlight keywords in the message
-                    let keywords: Vec<&str> = state.filter_input.split_whitespace().collect();
-                    let mut last_pos = 0;
-                    let mut positions: Vec<(usize, usize)> = Vec::new();
-
-                    for keyword in keywords {
-                        let message_lower = message.to_lowercase();
-                        let keyword_lower = keyword.to_lowercase();
-
-                        let mut start = 0;
-                        while let Some(pos) = message_lower[start..].find(&keyword_lower) {
-                            let abs_pos = start + pos;
-                            positions.push((abs_pos, abs_pos + keyword.len()));
-                            start = abs_pos + 1;
-                        }
-                    }
-
-                    positions.sort_by_key(|k| k.0);
-                    positions.dedup();
-
-                    for (start, end) in positions {
-                        if start > last_pos {
-                            spans.push(Span::raw(&message[last_pos..start]));
-                        }
-                        spans.push(Span::styled(
-                            &message[start..end],
-                            Style::default()
-                                .fg(Color::Yellow)
-                                .add_modifier(Modifier::BOLD),
-                        ));
-                        last_pos = end;
-                    }
-
-                    if last_pos < message.len() {
-                        spans.push(Span::raw(&message[last_pos..]));
-                    }
-                }
-
-                let style = if Some(i) == state.selected_log {
-                    Style::default().fg(Color::Yellow).bg(Color::DarkGray)
-                } else {
-                    Style::default()
-                };
-
-                ListItem::new(Line::from(spans)).style(style)
-            })
-            .collect();
-
-        let logs_list = List::new(logs)
-            .block(Block::default().title("Logs").borders(Borders::ALL))
-            .start_corner(Corner::TopLeft);
-        f.render_widget(logs_list, chunks[2]);
     }
 
-    // Controls
-    let controls = if state.expanded {
-        "Enter: Collapse | Esc: Back | q: Quit"
-    } else {
-        "↑↓: Navigate | Enter: Expand | Filter: Type to filter | Esc: Back | q: Quit"
-    };
+    // Sort and deduplicate positions
+    positions.sort_by_key(|k| k.0);
+    positions.dedup();
 
-    let controls_widget = Paragraph::new(controls)
-        .style(Style::default().fg(Color::Green))
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(controls_widget, chunks[3]);
+    // Build spans with highlighting
+    for (start, end) in positions {
+        if start > last_pos {
+            spans.push(Span::raw(message[last_pos..start].to_string()));
+        }
+        spans.push(Span::styled(
+            message[start..end].to_string(),
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        ));
+        last_pos = end;
+    }
+
+    if last_pos < message.len() {
+        spans.push(Span::raw(message[last_pos..].to_string()));
+    }
 }
 
 fn format_date_with_highlight(
