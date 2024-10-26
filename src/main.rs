@@ -3,7 +3,6 @@ mod config;
 mod toml_parser;
 mod ui;
 mod utils;
-
 use anyhow::Result;
 use app_state::{
     date_selection::DateSelection, function_selection::FunctionSelection, log_viewer::LogViewer,
@@ -17,6 +16,7 @@ use crossterm::{
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
+use ui::date_selection;
 
 struct App {
     state: AppState,
@@ -105,7 +105,9 @@ async fn main() -> Result<()> {
     // Main loop
     loop {
         terminal.draw(|f| match app.state {
-            AppState::ProfileSelection => ui::profile_list_view::draw_profile_selection(f, &mut app.profile_selection),
+            AppState::ProfileSelection => {
+                ui::profile_list_view::draw_profile_selection(f, &mut app.profile_selection)
+            }
             AppState::FunctionList => {
                 if let Some(ref mut function_selection) = app.function_selection {
                     ui::function_list_view::draw_function_selection(f, function_selection)
@@ -113,13 +115,7 @@ async fn main() -> Result<()> {
             }
             AppState::DateSelection => {
                 if let Some(ref mut date_selection) = app.date_selection {
-                    ui::log_view::draw_log_view(
-                        f,
-                        date_selection,
-                        app.log_viewer.as_ref(),  // Convert to reference
-                        app.is_loading,
-                        app.focused_panel,
-                    )
+                    ui::date_selection::draw_date_selection_panel(f, date_selection);
                 }
             }
             AppState::LogViewer => {
@@ -237,14 +233,14 @@ async fn main() -> Result<()> {
                                 KeyCode::Esc => {
                                     app.state = AppState::DateSelection;
                                     app.log_viewer = None;
-                                },
+                                }
                                 KeyCode::Up => {
                                     if app.state == AppState::LogViewer {
                                         log_viewer.scroll_up();
                                     } else {
                                         log_viewer.filter_input.pop();
                                     }
-                                },
+                                }
                                 KeyCode::Down if !log_viewer.expanded => log_viewer.scroll_down(),
                                 KeyCode::Enter => log_viewer.toggle_expand(),
                                 KeyCode::Char(c) if !log_viewer.expanded => {
