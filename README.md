@@ -94,6 +94,7 @@ Toggle detail view with `Enter`
 Ensure your AWS credentials are properly configured:
 
 # ~/.aws/credentials
+
 [default]
 aws_access_key_id = YOUR_ACCESS_KEY
 aws_secret_access_key = YOUR_SECRET_KEY
@@ -103,6 +104,7 @@ aws_access_key_id = OTHER_ACCESS_KEY
 aws_secret_access_key = OTHER_SECRET_KEY
 
 # ~/.aws/config
+
 [profile default]
 region = us-west-2
 
@@ -112,6 +114,7 @@ region = eu-west-1
 ### Cache Configuration
 
 The application caches function lists to improve performance. Cache files are stored in:
+
 - Linux/macOS: `~/.cache/aws-lambda-logs-viewer/`
 - Windows: `%LOCALAPPDATA%\aws-lambda-logs-viewer\`
 

@@ -411,24 +411,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aws_logs_tui"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "aws-config",
- "aws-sdk-cloudwatchlogs",
- "aws-sdk-lambda",
- "chrono",
- "crossterm",
- "dirs",
- "ratatui",
- "serde",
- "serde_json",
- "tokio",
- "toml",
-]
-
-[[package]]
 name = "backtrace"
 version = "0.3.74"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1473,6 +1455,24 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "rust_aws_tui"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aws-config",
+ "aws-sdk-cloudwatchlogs",
+ "aws-sdk-lambda",
+ "chrono",
+ "crossterm",
+ "dirs",
+ "ratatui",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
 ]
 
 [[package]]
