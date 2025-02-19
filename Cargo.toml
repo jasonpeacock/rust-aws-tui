@@ -1,18 +1,18 @@
 [package]
-name = "rust_tui_app"
+name = "aws_logs_tui"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ratatui = "0.24.0"
-crossterm = "0.27.0"
-anyhow = "1.0.75"
-aws-config = "1.5.8"
-aws-sdk-lambda = "1.51.0"
-tokio = { version = "1.32.0", features = ["full"] }
-toml = "0.8.19"
-serde = { version = "1.0.213", features = ["derive"] }
-dirs = "5.0"
+anyhow = "1.0"
+aws-config = "1.5"
+aws-sdk-cloudwatchlogs = "1.70"
+aws-sdk-lambda = "1.69"
 chrono = "0.4"
-aws-sdk-cloudwatchlogs = "1.52.0"
+crossterm = "0.28"
+dirs = "6.0"
+ratatui = "0.29.0"
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+tokio = { version = "1.43.0", features = ["full"] }
+toml = "0.8"

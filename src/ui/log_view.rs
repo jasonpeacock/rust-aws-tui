@@ -8,7 +8,7 @@ use crate::{
 };
 use chrono::{DateTime, Local};
 use ratatui::{
-    layout::{Alignment, Constraint, Corner, Direction, Layout, Margin, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{
@@ -178,7 +178,7 @@ fn draw_expanded_log(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layou
 
         // Content area with scrollbar
         let content_area = layout[1];
-        let inner_area = content_area.inner(&Margin {
+        let inner_area = content_area.inner(Margin {
             vertical: 1,
             horizontal: 1,
         });
@@ -209,7 +209,7 @@ fn draw_expanded_log(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layou
                 Scrollbar::new(ScrollbarOrientation::VerticalRight)
                     .begin_symbol(Some("↑"))
                     .end_symbol(Some("↓")),
-                content_area.inner(&Margin {
+                content_area.inner(Margin {
                     vertical: 1,
                     horizontal: 0,
                 }),
@@ -339,18 +339,16 @@ fn draw_log_list(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layout::R
         100
     };
 
-    let logs_list = List::new(logs)
-        .block(
-            Block::default()
-                .title(format!(
-                    "Logs ({}/{}) {}%",
-                    log_viewer.selected_log.map_or(0, |i| i + 1),
-                    total_logs,
-                    scroll_percentage
-                ))
-                .borders(Borders::ALL),
-        )
-        .start_corner(Corner::TopLeft);
+    let logs_list = List::new(logs).block(
+        Block::default()
+            .title(format!(
+                "Logs ({}/{}) {}%",
+                log_viewer.selected_log.map_or(0, |i| i + 1),
+                total_logs,
+                scroll_percentage
+            ))
+            .borders(Borders::ALL),
+    );
 
     f.render_widget(Clear, area);
     f.render_widget(logs_list, area);
@@ -377,7 +375,7 @@ fn draw_log_list(f: &mut Frame, log_viewer: &LogViewer, area: ratatui::layout::R
             Scrollbar::new(ScrollbarOrientation::VerticalRight)
                 .begin_symbol(Some("↑"))
                 .end_symbol(Some("↓")),
-            area.inner(&Margin {
+            area.inner(Margin {
                 vertical: 1,
                 horizontal: 0,
             }),
